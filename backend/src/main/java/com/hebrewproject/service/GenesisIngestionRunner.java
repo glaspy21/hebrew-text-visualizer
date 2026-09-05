@@ -114,6 +114,16 @@ public class GenesisIngestionRunner implements ApplicationRunner {
             Verse verse = new Verse(book, chapterNumber, verseNumber, canonicalOrder);
             verseRepository.save(verse); // save now so it has an ID for the Word FK
 
+            // Only DIRECT <w> children of <verse> count as words. 17 verses in
+            // Genesis carry a Ketiv/Qere pair (the Masoretic "written" vs.
+            // "read" alternate for one word position) - the Ketiv is a direct
+            // child, while the Qere alternate is nested inside
+            // <w type="x-ketiv">...</w><note><rdg type="x-qere"><w>...</w></rdg></note>.
+            // Only walking direct children keeps the Ketiv (the literal written
+            // text) and deliberately ignores the nested Qere, so each word
+            // position is counted exactly once. See DATA_SOURCES.md for the
+            // full verse list. Total ingested word count is 20,612, not the
+            // file's raw 20,629 <w> tag count - that gap is this, not a bug.
             int positionInVerse = 0;
             NodeList children = verseEl.getChildNodes();
             for (int c = 0; c < children.getLength(); c++) {
