@@ -1,9 +1,11 @@
 package com.hebrewproject.service;
 
+import com.hebrewproject.model.IngestionMetadata;
 import com.hebrewproject.model.Root;
 import com.hebrewproject.model.RootOccurrence;
 import com.hebrewproject.model.Verse;
 import com.hebrewproject.model.Word;
+import com.hebrewproject.repository.IngestionMetadataRepository;
 import com.hebrewproject.repository.RootOccurrenceRepository;
 import com.hebrewproject.repository.VerseRepository;
 import com.hebrewproject.repository.WordRepository;
@@ -19,9 +21,12 @@ import org.w3c.dom.NodeList;
 
 import javax.xml.parsers.DocumentBuilder;
 import javax.xml.parsers.DocumentBuilderFactory;
-import java.io.InputStream;
+import java.io.ByteArrayInputStream;
+import java.security.MessageDigest;
+import java.time.Instant;
 import java.util.HashMap;
 import java.util.Map;
+import java.util.Optional;
 
 /**
  * Port of parse_gen1.py, wired into Spring's lifecycle via ApplicationRunner
@@ -39,28 +44,55 @@ import java.util.Map;
 @Component
 public class GenesisIngestionRunner implements ApplicationRunner {
 
+    private static final String SOURCE_FILE = "data/Gen.xml";
+
     private final VerseRepository verseRepository;
     private final WordRepository wordRepository;
     private final RootOccurrenceRepository rootOccurrenceRepository;
+    private final IngestionMetadataRepository ingestionMetadataRepository;
 
     public GenesisIngestionRunner(VerseRepository verseRepository,
                                    WordRepository wordRepository,
-                                   RootOccurrenceRepository rootOccurrenceRepository) {
+                                   RootOccurrenceRepository rootOccurrenceRepository,
+                                   IngestionMetadataRepository ingestionMetadataRepository) {
         this.verseRepository = verseRepository;
         this.wordRepository = wordRepository;
         this.rootOccurrenceRepository = rootOccurrenceRepository;
+        this.ingestionMetadataRepository = ingestionMetadataRepository;
     }
 
     @Override
     @Transactional
     public void run(ApplicationArguments args) throws Exception {
-        if (verseRepository.count() > 0) {
-            System.out.println("[Ingestion] Data already present, skipping ingestion.");
+        byte[] xmlBytes = readResourceBytes(SOURCE_FILE);
+        String checksum = sha256Hex(xmlBytes);
+
+        Optional<IngestionMetadata> existing = ingestionMetadataRepository.findById(SOURCE_FILE);
+        if (existing.isPresent() && existing.get().getSha256Checksum().equals(checksum)) {
+            System.out.printf("[Ingestion] %s already ingested at sha256 %s (%d verses, %d words, completed %s) - skipping.%n",
+                    SOURCE_FILE, checksum, existing.get().getVerseCount(), existing.get().getWordCount(),
+                    existing.get().getCompletedAt());
             return;
         }
-        System.out.println("[Ingestion] Starting Genesis ingestion...");
 
-        Document doc = loadDocument();
+        // Any mismatch (new dataset content) or absence of a completed-ingestion
+        // record (first run, or a prior run that crashed before recording one)
+        // means whatever's in these tables can't be trusted as complete - wipe
+        // and rebuild from scratch rather than trying to patch/dedupe it.
+        if (existing.isPresent()) {
+            System.out.println("[Ingestion] Source file checksum changed since last ingest - re-ingesting.");
+        } else if (verseRepository.count() > 0) {
+            System.out.println("[Ingestion] Existing verse data found with no completed-ingestion record " +
+                    "(likely an interrupted prior run) - wiping and re-ingesting.");
+        } else {
+            System.out.println("[Ingestion] Starting Genesis ingestion...");
+        }
+        rootOccurrenceRepository.deleteAllInBatch();
+        wordRepository.deleteAllInBatch();
+        verseRepository.deleteAllInBatch();
+        existing.ifPresent(ingestionMetadataRepository::delete);
+
+        Document doc = parseDocument(xmlBytes);
 
         // running root-occurrence tally, exactly like running_counts in parse_gen1.py
         Map<String, Integer> runningCounts = new HashMap<>();
@@ -110,6 +142,11 @@ public class GenesisIngestionRunner implements ApplicationRunner {
                 wordCount++;
             }
         }
+
+        // Written only now, after everything above succeeded - its presence at a
+        // matching checksum is what future runs treat as proof of a complete ingest.
+        ingestionMetadataRepository.save(new IngestionMetadata(
+                SOURCE_FILE, checksum, (int) canonicalOrder, wordCount, Instant.now()));
 
         System.out.printf("[Ingestion] Done. %d verses, %d words processed. %d unique roots found.%n",
                 canonicalOrder, wordCount, runningCounts.size());
@@ -172,14 +209,29 @@ public class GenesisIngestionRunner implements ApplicationRunner {
         }
     }
 
-    private Document loadDocument() throws Exception {
+    private byte[] readResourceBytes(String path) throws Exception {
+        try (var is = new ClassPathResource(path).getInputStream()) {
+            return is.readAllBytes();
+        }
+    }
+
+    private String sha256Hex(byte[] data) throws Exception {
+        byte[] digest = MessageDigest.getInstance("SHA-256").digest(data);
+        StringBuilder sb = new StringBuilder(digest.length * 2);
+        for (byte b : digest) {
+            sb.append(String.format("%02x", b));
+        }
+        return sb.toString();
+    }
+
+    private Document parseDocument(byte[] xmlBytes) throws Exception {
         DocumentBuilderFactory factory = DocumentBuilderFactory.newInstance();
         // Security hardening: disable external entity resolution (prevents XXE
         // attacks). Worth doing on ANY XML parser that reads external files,
         // even ones you trust today - defense in depth.
         factory.setFeature("http://apache.org/xml/features/disallow-doctype-decl", true);
         DocumentBuilder builder = factory.newDocumentBuilder();
-        try (InputStream is = new ClassPathResource("data/Gen.xml").getInputStream()) {
+        try (var is = new ByteArrayInputStream(xmlBytes)) {
             return builder.parse(is);
         }
     }
