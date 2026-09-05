@@ -1,0 +1,99 @@
+.app {
+  max-width: 900px;
+  margin: 0 auto;
+  padding: 2rem 1.5rem 3rem;
+  font-family: system-ui, sans-serif;
+  color: #1a1a1a;
+}
+
+header h1 {
+  margin-bottom: 0.1rem;
+  font-size: 1.6rem;
+}
+
+.subtitle {
+  margin: 0 0 1.5rem;
+  color: #666;
+  font-size: 0.9rem;
+}
+
+.controls {
+  display: flex;
+  align-items: flex-end;
+  gap: 1rem;
+  flex-wrap: wrap;
+  margin-bottom: 1.5rem;
+}
+
+.controls label {
+  display: flex;
+  flex-direction: column;
+  font-size: 0.8rem;
+  color: #444;
+  gap: 0.25rem;
+}
+
+.controls input {
+  width: 5rem;
+  padding: 0.4rem;
+  font-size: 1rem;
+}
+
+.controls button {
+  padding: 0.5rem 1.2rem;
+  font-size: 1rem;
+  cursor: pointer;
+}
+
+.error {
+  color: #b00020;
+}
+
+.hint {
+  color: #888;
+}
+
+/* The reading pane is deliberately a fixed near-black background, independent
+   of light/dark mode: the color scale's dark-red end (#280000-ish) is meant
+   to visually recede into the backdrop, which only works against black. */
+.reading-pane {
+  background: #0a0a0a;
+  border-radius: 8px;
+  padding: 1.5rem 2rem;
+  min-height: 200px;
+  direction: rtl;
+}
+
+.verse-row {
+  display: flex;
+  flex-direction: row-reverse;
+  align-items: baseline;
+  gap: 0.6rem;
+  margin-bottom: 0.6rem;
+  font-size: 1.6rem;
+  line-height: 2.2;
+}
+
+.verse-number {
+  font-family: system-ui, sans-serif;
+  font-size: 0.75rem;
+  color: #555;
+  direction: ltr;
+  flex-shrink: 0;
+  margin-inline-start: 0.4rem;
+}
+
+.verse-words {
+  flex: 1;
+}
+
+.hebrew-word {
+  margin-inline-start: 0.35rem;
+  cursor: default;
+}
+
+.legend {
+  margin-top: 1.2rem;
+  font-size: 0.8rem;
+  color: #555;
+}
