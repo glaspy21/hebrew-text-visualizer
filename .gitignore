@@ -1,5 +1,7 @@
-target/
-data/
+/backend/target/
+/backend/data/
+node_modules/
+frontend/dist/
 .idea/
 *.iml
 .vscode/
