@@ -49,22 +49,32 @@ Gen.14.8, Gen.24.33, Gen.25.23, Gen.27.3, Gen.27.29, Gen.30.11 (×2),
 Gen.36.5, Gen.36.14, Gen.39.20, Gen.43.28, Gen.49.10, Gen.49.11 (×2) for the
 full list.
 
-## Hebrew Lexicon (planned, not yet vendored into this repo)
+## Hebrew Lexicon: Open Scriptures Hebrew Lexicon (Strong's)
 
 - **Source repository:** https://github.com/openscriptures/HebrewLexicon
-- **Files referenced by the design (`HebrewStrong.xml`,
-  `BrownDriverBriggs.xml`):** not yet present in this repository. Per
-  PROJECT_NOTES.md, the derivation-chain logic that would consume these files
-  has only been validated in standalone Python prototypes and has not been
-  ported into the Java ingestion pipeline yet (see Root/Word.root FK, both
-  currently unpopulated).
+- **File used:** `HebrewStrong.xml`, vendored into this repo at
+  `backend/src/main/resources/data/HebrewStrong.xml`
+- **Content:** Strong's Hebrew Dictionary entries, including each entry's
+  `<source>` derivation chain (`src="H####"` references) that
+  `root_finder_v2.py` / the Java derivation-chain walker read to resolve a
+  word back to its primitive root.
+- **Upstream commit this copy was downloaded at:** `a961acd2be93a96696a3d3
+  28b2b01b4ab36d0039` (2018-10-29, "Minor correction in 5019") — the most
+  recent commit touching `HebrewStrong.xml` on `master` as of download.
+- **Exact fingerprint of the file shipped in this repo:**
+  - SHA-256: `a628f4f89f8bdaf2483fd3faf1abc8653cc6717758dfc9f24beb7571d9bdd0c4`
+  - Size: 2,749,042 bytes
+  - Content: 8,674 `<entry>` elements
 - **License:** Creative Commons Attribution 4.0 International (CC BY 4.0)
-  for the lemma/derivation data itself; the underlying Brown-Driver-Briggs
-  and Strong's dictionary text is Public Domain. Same attribution
-  requirement as above: *"credit the Open Scriptures Hebrew Bible Project."*
-- When this data is vendored in, record its exact source file(s), a SHA-256
-  checksum, and the upstream commit/release it came from here, the same way
-  Gen.xml is documented above.
+  for the lemma/derivation data itself; the underlying Strong's dictionary
+  text is Public Domain (confirmed against the repo's own `readme.md`).
+  Same attribution requirement as above: *"credit the Open Scriptures
+  Hebrew Bible Project."*
+- **Not yet vendored:** `BrownDriverBriggs.xml` (BDB) — referenced in
+  PROJECT_NOTES.md's design discussion as corroborating evidence for
+  disputed etymologies (e.g. Elohim), but not read programmatically by any
+  code yet. Vendor it the same way, with its own checksum entry here, if
+  that becomes necessary.
 
 ## Attribution notice (for any public-facing build of this project)
 
