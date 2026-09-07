@@ -54,10 +54,17 @@ public class RangeColorCalculator {
      * @return a map from word.getId() to that word's computed color info
      */
     public Map<Long, WordColorResult> computeColors(List<Word> wordsInRange) {
-        // Step 1: count how many times each root appears in this range
+        // Step 1: count how many times each root appears in this range - by
+        // the RESOLVED root's Strong's ID (e.g. H4427, "to reign"), not the
+        // raw per-word ID, so that e.g. מֶלֶךְ (king) and מָלַךְ (reign) count
+        // as the same recurring root instead of two separate group keys.
+        // Grouping on the Strong's ID string (rather than the Root entity
+        // itself) sidesteps any JPA identity-map subtleties - Root has no
+        // overridden equals/hashCode, and its strongId is already the
+        // entity's unique business key.
         Map<String, Integer> countPerRoot = new HashMap<>();
         for (Word w : wordsInRange) {
-            countPerRoot.merge(w.getRootStrongIdRaw(), 1, Integer::sum);
+            countPerRoot.merge(w.getRoot().getStrongId(), 1, Integer::sum);
         }
 
         // Step 2: find the range's own max (the most frequent root WITHIN this
@@ -75,8 +82,9 @@ public class RangeColorCalculator {
         // Step 4: apply each root's color to EVERY word instance sharing that root
         Map<Long, WordColorResult> result = new HashMap<>();
         for (Word w : wordsInRange) {
-            int count = countPerRoot.get(w.getRootStrongIdRaw());
-            String color = colorPerRoot.get(w.getRootStrongIdRaw());
+            String rootId = w.getRoot().getStrongId();
+            int count = countPerRoot.get(rootId);
+            String color = colorPerRoot.get(rootId);
             result.put(w.getId(), new WordColorResult(count, color));
         }
         return result;
