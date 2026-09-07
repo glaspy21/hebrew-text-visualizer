@@ -167,9 +167,38 @@ pick a side on cases like this.
 **Homograph detection is separate from root grouping.** Some roots are
 spelled identically once Masoretic vowel points are stripped, despite being
 totally unrelated words (e.g. שָׂחַט "squeeze" Gen 40:11 vs. שָׁחַט
-"slaughter" Gen 22:10 — both שחט in bare consonants). 83 such clusters exist
-across all primitive roots in the lexicon. These get flagged for the UI, not
-merged and not ignored.
+"slaughter" Gen 22:10 — both שחט in bare consonants). These get flagged for
+the UI, not merged and not ignored. No clustering code exists yet (checked -
+only `Root.consonantalSkeleton` is populated, as a side effect of the
+2026-09-07 root-derivation session); "flag homographs" is currently just a
+design decision plus a small, mechanical implementation once that decision
+is made. That decision, verified against the real vendored lexicon:
+
+- **83 clusters is real, but only for TRUE PRIMITIVE roots** (1,335
+  primitives → exactly 83 clusters, up to 6-way) - this is almost certainly
+  where the "83" figure originally came from.
+- **Clustering on what the app actually stores instead** (`Root` rows,
+  including flagged depth-1 stopping points like Elohim's H433) gives **518
+  clusters across 1,219 of 3,706 roots - a third of all roots** - because
+  non-primitive intermediate nodes collide far more than true primitives do.
+- Among just the 1,249 roots Genesis actually uses: 113 genuine clusters,
+  plus one noisy 25-way "cluster" from roots with no real lexicon entry
+  (empty-skeleton fallback, e.g. bare-prefix-only lemmas) that must be
+  filtered out or the count is meaningless.
+- **Decided (2026-09-07): cluster on confirmed primitive roots only** -
+  matches the documented "83", and is the more conservative choice: a `Root`
+  already flagged `derivationUncertain` (287 of 1,249 in Genesis, e.g.
+  Elohim's H433) never participates in homograph clustering either, since we
+  can't confirm it's truly primitive in the first place. Don't conflate
+  `derivationUncertain == false` with "is primitive," though - they're not
+  quite the same set. H193 ("from an unused root meaning to twist...") has NO
+  `<source>` refs and so resolves with `flagged=false`, but its source text
+  never says "a primitive root" either - it'd pass a `derivationUncertain`
+  check but fail a strict `isPrimitiveRoot()` one. "Confirmed primitive"
+  means the latter: filter on `StrongsLexiconEntry.isPrimitiveRoot()` being
+  true for the root's own lexicon entry, not on the absence of a flag.
+- Whoever picks this up next should re-verify the 83-cluster figure once the
+  clustering code actually exists, rather than trusting this write-up alone.
 
 **Coloring is uniform-per-root-within-range, NOT positional.** (This
 superseded an earlier "progressive" design where color depended on a word's
