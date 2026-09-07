@@ -37,10 +37,14 @@ disputed). It also detects homographs — different roots that happen to look
 identical once Masoretic vowel points are stripped away (e.g. squeeze vs.
 slaughter, both שחט in bare consonants).
 
-**Status:** the derivation-chain enrichment above is validated in Python
-prototypes but not yet wired into the live Java pipeline — see
-[PROJECT_NOTES.md](PROJECT_NOTES.md) for details. The live API today groups
-words by their raw Strong's ID (prefixes stripped), not yet by resolved root.
+**Status:** the derivation-chain enrichment above is now wired into the live
+Java pipeline — every word's Strong's ID is resolved to a true `Root` at
+ingestion time (1,837 raw Strong's IDs collapse down to 1,249 resolved
+roots in Genesis, 287 of them flagged as uncertain), and the live API groups
+by that resolved root, not the raw ID. See
+[PROJECT_NOTES.md](PROJECT_NOTES.md) for the full session writeup. Homograph
+detection (different roots that happen to share a consonantal skeleton) is
+still not yet wired in — a separate concern from root grouping.
 
 ## Tech stack
 
@@ -156,8 +160,7 @@ The backend's `WebConfig` allows CORS from `http://localhost:5173` for this.
 - [x] Spring Boot API serving Genesis with live-computed colors
 - [x] Automated tests for the color algorithm and range behavior
 - [x] Explicit dataset/version tracking for ingestion (checksum-based, not "table is non-empty")
-- [ ] Lexicon-derivation enrichment wired into the live API (currently
-      validated in Python prototypes, not yet ported into the Java pipeline)
+- [x] Lexicon-derivation enrichment wired into the live API
 - [ ] Homograph flagging in the database
 - [ ] React frontend (early scaffold exists, not feature-complete)
 - [ ] Docker + Azure deployment (App Service or AKS)

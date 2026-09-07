@@ -1,5 +1,56 @@
 # Hebrew Text Rarity Visualizer — Project Notes
 
+## Session: 2026-09-07 — root-derivation enrichment wired into Java
+
+Closed the biggest documented gap between the Python prototypes and the live
+Java pipeline: root derivation is now real, in the running app, not just
+validated in standalone scripts. Landed as five reviewable commits:
+
+1. Vendored `HebrewStrong.xml` (2.75MB, 8,674 entries) from
+   openscriptures/HebrewLexicon into `backend/src/main/resources/data/`,
+   documented in DATA_SOURCES.md with its checksum and upstream commit -
+   this unblocked actually running (not just reading) the derivation logic.
+2. Added the missing `RootRepository`.
+3. Ported `root_finder_v2.py`'s depth-1-capped derivation walk to Java
+   (`StrongsLexiconParser`, `RootDerivationResolver`) - tested against the
+   real vendored lexicon (not mocks), re-validating all five cases from the
+   table below.
+4. Wired it into `GenesisIngestionRunner`: every word's raw Strong's ID is
+   now resolved and linked via `Word.root`, with `Root` rows get-or-created
+   and cached per ingestion run.
+5. Switched `RangeColorCalculator` to group by the resolved `Root` instead
+   of `rootStrongIdRaw` - the actual visible behavior change. Verified live:
+   every occurrence of king/reign across Genesis 36 (12 combined) now
+   returns identical count and color from the real API.
+
+**Real bug found and fixed along the way:** OSHB tags ~17% of Genesis's
+words (3,574 of 20,612) with a homonym-sense suffix in their lemma (e.g.
+`"4427 a"`), which `HebrewStrong.xml` has no entry for - only the bare
+`"4427"`. Without normalizing this before lexicon lookup, every one of those
+words would've been wrongly flagged as unresolved (including the one place
+in Genesis the "reign" verb itself appears - Gen 36:31). Fixed via
+`GenesisIngestionRunner.toLexiconLookupId()`, used only for lexicon lookup;
+`rootStrongIdRaw` itself is left untouched, per its documented "raw" contract.
+
+**Real numbers from a full ingestion run:** 1,837 distinct raw Strong's IDs
+collapse down to **1,249** true resolved roots, of which **287** are flagged
+`derivationUncertain` (chain went deeper than the depth-1 cap, or the ID
+wasn't found in the lexicon at all - e.g. the rare bare-prefix-only lemma
+edge case, ~2.6% of words, see `GenesisIngestionRunner.toLexiconLookupId`'s
+doc comment).
+
+**Operational catch for anyone with an existing local DB:** `IngestionMetadata`
+only tracks `Gen.xml`'s checksum, not `HebrewStrong.xml`'s - so a DB ingested
+before this session's changes will NOT automatically re-ingest and pick up
+`Root`/`Word.root` population (Gen.xml itself hasn't changed). Delete
+`backend/data/` once and restart to force a fresh ingestion.
+
+**Deliberately out of scope this session:** homograph detection (a separate
+concern per "Key design decisions" below - grouping resolved roots that
+happen to share a consonantal skeleton despite being unrelated words). Root
+rows do get a `consonantalSkeleton` value (needed to satisfy the NOT NULL
+column), but nothing clusters on it yet - still roadmap item 2 below.
+
 ## Session: 2026-09-05 — backend consolidation & verification
 
 Before starting frontend work for real, did a full pass to make sure the
@@ -170,9 +221,10 @@ backend/src/test/java/com/hebrewproject/service/
 - `RootOccurrence.colorHex` is unused/nullable - superseded by live
   computation. `runningCount` still stored as raw data, not currently used
   by the main API.
-- `Word.rootStrongIdRaw` is still the RAW Strong's ID - the derivation-chain
-  enrichment (king/reign/queen-style grouping) has NOT been wired into the
-  live Java pipeline yet, only validated in Python prototypes.
+- `Word.rootStrongIdRaw` is still the RAW Strong's ID, kept as-is per its
+  documented contract - `Word.root` is now populated at ingestion time (see
+  the 2026-09-07 session above) and is what `RangeColorCalculator` actually
+  groups by.
 
 ## Bugs hit and fixed this session
 - `partOfSpeech` column was declared `varchar(5)` but `parseMorphology()`
@@ -183,15 +235,20 @@ backend/src/test/java/com/hebrewproject/service/
   written some verses, which would've made the app skip re-ingestion
   entirely on the next run (guarded by `if (verseRepository.count() > 0)`).
 
-## Validated root-derivation test cases (Python prototypes - regression tests once ported to Java)
+## Validated root-derivation test cases (now checked in both Python and Java)
 
 | Words | Result | Notes |
 |---|---|---|
-| מֶלֶךְ (king) / מָלַךְ (reign) / מַלְכָּה (queen) | Same root (H4427) | Clean cross-POS derivation |
+| מֶלֶךְ (king) / מָלַךְ (reign) / מַלְכָּה (queen) | Same root (H4427) | Clean cross-POS derivation. Java-verified live: 12 combined occurrences across Genesis 36, identical color |
 | צֵלָע (rib, Gen 2:22) / צֹלֵעַ (limping, Gen 32:32) | Same root (H6760) | Real intertextual echo |
-| שָׂחַט (squeeze, Gen 40:11) / שָׁחַט (slaughter, Gen 22:10) | Different roots, same consonantal skeleton | HOMOGRAPH, not a shared root |
+| שָׂחַט (squeeze, Gen 40:11) / שָׁחַט (slaughter, Gen 22:10) | Different roots, same consonantal skeleton | HOMOGRAPH, not a shared root - not yet clustered on (see "Not yet built" #2) |
 | צַדִּיק (righteous, Gen 6:9) | Traces to verb צָדַק (H6663) | Adjective -> verb grouping works |
-| אֱלֹהִים (Elohim) | FLAGGED, not auto-resolved | Disputed etymology, see above |
+| אֱלֹהִים (Elohim) | FLAGGED, resolves one hop to H433, not chained further | Disputed etymology, see above |
+
+Java regression coverage: `RootDerivationResolverTest` (pure walk, against
+the real vendored lexicon) and `GenesisIngestionRunnerIntegrationTest` (full
+Spring context + real ingestion, checks actual persisted `Word.root` state)
+in `backend/src/test/java/com/hebrewproject/service/`.
 
 ## Python prototype files (in hebrew-project-code/ output folder)
 - `parse_gen1.py` — OSIS XML parsing, prefix stripping
@@ -215,9 +272,8 @@ until each piece is actually built and running, per earlier discussion about
 not overclaiming ahead of real experience.
 
 ## Not yet built (roadmap)
-1. Lexicon-derivation enrichment wired into the live Java pipeline (Root
-   entity populated, Word.root FK linked) - biggest gap between prototype
-   and production right now
+1. ~~Lexicon-derivation enrichment wired into the live Java pipeline~~ - DONE,
+   see the 2026-09-07 session above
 2. Homograph flagging in the DB
 3. React frontend (rendering the actual colored Hebrew text visually)
 4. Docker containerization
