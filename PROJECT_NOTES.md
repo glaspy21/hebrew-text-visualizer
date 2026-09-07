@@ -200,6 +200,21 @@ is made. That decision, verified against the real vendored lexicon:
 - Whoever picks this up next should re-verify the 83-cluster figure once the
   clustering code actually exists, rather than trusting this write-up alone.
 
+**Idea, not yet scoped: an active "search/view by bare consonants" mode**
+(distinct from homograph flagging above - don't conflate the two). Homograph
+flagging is passive: a quiet marker on the existing true-root view, warning
+"this word's bare consonants also match something unrelated." What's
+described here is different - a toggle the reader actively switches on, so
+words are grouped/searched by `Root.consonantalSkeleton` directly instead of
+by resolved Strong's-ID root, deliberately surfacing pairs like שָׂחַט
+(squeeze) and שָׁחַט (slaughter) - two different primitive roots (H7818,
+H7819) that only collide once vowel points are stripped - as a single view.
+The raw data already exists (`consonantalSkeleton` is computed and stored
+for every `Root`), so this needs no new backend derivation work - it's a
+frontend + API feature (a different grouping mode plus a UI toggle), most
+naturally designed alongside the React frontend work, not the homograph
+flagging handoff.
+
 **Coloring is uniform-per-root-within-range, NOT positional.** (This
 superseded an earlier "progressive" design where color depended on a word's
 position in reading order vs. a running max - that version made the SAME
