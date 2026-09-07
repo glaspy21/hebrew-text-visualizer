@@ -7,6 +7,7 @@ import com.hebrewproject.model.Verse;
 import com.hebrewproject.model.Word;
 import com.hebrewproject.repository.IngestionMetadataRepository;
 import com.hebrewproject.repository.RootOccurrenceRepository;
+import com.hebrewproject.repository.RootRepository;
 import com.hebrewproject.repository.VerseRepository;
 import com.hebrewproject.repository.WordRepository;
 import org.springframework.boot.ApplicationArguments;
@@ -45,20 +46,30 @@ import java.util.Optional;
 public class GenesisIngestionRunner implements ApplicationRunner {
 
     private static final String SOURCE_FILE = "data/Gen.xml";
+    private static final String LEXICON_FILE = "data/HebrewStrong.xml";
 
     private final VerseRepository verseRepository;
     private final WordRepository wordRepository;
     private final RootOccurrenceRepository rootOccurrenceRepository;
     private final IngestionMetadataRepository ingestionMetadataRepository;
+    private final RootRepository rootRepository;
+    private final StrongsLexiconParser lexiconParser;
+    private final RootDerivationResolver rootDerivationResolver;
 
     public GenesisIngestionRunner(VerseRepository verseRepository,
                                    WordRepository wordRepository,
                                    RootOccurrenceRepository rootOccurrenceRepository,
-                                   IngestionMetadataRepository ingestionMetadataRepository) {
+                                   IngestionMetadataRepository ingestionMetadataRepository,
+                                   RootRepository rootRepository,
+                                   StrongsLexiconParser lexiconParser,
+                                   RootDerivationResolver rootDerivationResolver) {
         this.verseRepository = verseRepository;
         this.wordRepository = wordRepository;
         this.rootOccurrenceRepository = rootOccurrenceRepository;
         this.ingestionMetadataRepository = ingestionMetadataRepository;
+        this.rootRepository = rootRepository;
+        this.lexiconParser = lexiconParser;
+        this.rootDerivationResolver = rootDerivationResolver;
     }
 
     @Override
@@ -93,6 +104,14 @@ public class GenesisIngestionRunner implements ApplicationRunner {
         existing.ifPresent(ingestionMetadataRepository::delete);
 
         Document doc = parseDocument(xmlBytes);
+
+        // Loaded once per ingestion run, not per word - HebrewStrong.xml doesn't
+        // change within a run, and re-parsing ~8,700 entries per word would be
+        // wasteful. rootCache is the get-or-create memo for resolved Root rows
+        // within this same run (see resolveRoot below) - separate from the
+        // lexicon map, which is read-only.
+        Map<String, StrongsLexiconEntry> lexiconEntries = lexiconParser.parseClasspathResource(LEXICON_FILE);
+        Map<String, Root> rootCache = new HashMap<>();
 
         // running root-occurrence tally, exactly like running_counts in parse_gen1.py
         Map<String, Integer> runningCounts = new HashMap<>();
@@ -136,7 +155,10 @@ public class GenesisIngestionRunner implements ApplicationRunner {
                 String rawLemma = el.getAttribute("lemma");
                 String rootStrongIdRaw = primaryLemma(rawLemma);
 
+                Root root = resolveRoot(rootStrongIdRaw, lexiconEntries, rootCache);
+
                 Word word = new Word(surfaceForm, rawLemma, rootStrongIdRaw, positionInVerse, verse);
+                word.setRoot(root);
                 parseMorphology(el.getAttribute("morph"), word);
 
                 int newCount = runningCounts.merge(rootStrongIdRaw, 1, Integer::sum);
@@ -160,6 +182,57 @@ public class GenesisIngestionRunner implements ApplicationRunner {
 
         System.out.printf("[Ingestion] Done. %d verses, %d words processed. %d unique roots found.%n",
                 canonicalOrder, wordCount, runningCounts.size());
+    }
+
+    /**
+     * Resolve a word's raw Strong's ID to its true Root via
+     * RootDerivationResolver, and get-or-create the corresponding Root row -
+     * reusing one across every word in this run that resolves to the same ID
+     * (rootCache), and reusing one already persisted by an earlier ingestion
+     * run (rootRepository.findByStrongId) since Root rows aren't wiped
+     * alongside Word/Verse on re-ingestion - they're sourced from
+     * HebrewStrong.xml, a separate, stable file from Gen.xml.
+     *
+     * Root.hebrewPointed/consonantalSkeleton are NOT NULL columns, so a
+     * resolved ID with no lexicon entry of its own (e.g. "UNKNOWN" for a
+     * missing lemma attribute) falls back to the ID itself/empty string
+     * rather than leaving those blank - and is marked derivationUncertain
+     * either way, since there's no lexicon data to trust for it.
+     */
+    private Root resolveRoot(String rawStrongId, Map<String, StrongsLexiconEntry> lexiconEntries, Map<String, Root> rootCache) {
+        RootResolution resolution = rootDerivationResolver.resolve(toLexiconLookupId(rawStrongId), lexiconEntries);
+        String resolvedId = resolution.getRootStrongId();
+
+        Root cached = rootCache.get(resolvedId);
+        if (cached != null) return cached;
+
+        Root root = rootRepository.findByStrongId(resolvedId).orElseGet(() -> {
+            StrongsLexiconEntry entry = lexiconEntries.get(resolvedId);
+            String hebrewPointed = (entry != null && entry.getHebrewPointed() != null) ? entry.getHebrewPointed() : resolvedId;
+            String consonantalSkeleton = (entry != null && entry.getConsonantalSkeleton() != null) ? entry.getConsonantalSkeleton() : "";
+            Root newRoot = new Root(resolvedId, hebrewPointed, consonantalSkeleton);
+            newRoot.setDerivationUncertain(resolution.isFlagged() || entry == null);
+            return rootRepository.save(newRoot);
+        });
+
+        rootCache.put(resolvedId, root);
+        return root;
+    }
+
+    /**
+     * Strip OSHB's homonym-sense suffix, e.g. "4427 a" -&gt; "4427" (a trailing
+     * space + single lowercase letter marking "sense a of this Strong's
+     * number" - distinct from HebrewStrong.xml's own no-space entry-id suffix
+     * convention, e.g. "H1a" for a genuinely separate dictionary entry).
+     * HebrewStrong.xml has no entry for "4427a"/"4427 a", only "4427" itself -
+     * about 3,574 of Genesis's 20,612 words (~17%) carry this suffix in their
+     * lemma, so without stripping it here, RootDerivationResolver would treat
+     * every one of them as an unknown ID and flag it, rather than actually
+     * resolving it. rootStrongIdRaw itself is left untouched (still the raw
+     * OSHB value) - this normalization exists only for lexicon lookup.
+     */
+    private String toLexiconLookupId(String rawStrongId) {
+        return rawStrongId.replaceAll("\\s[a-z]$", "");
     }
 
     /**
