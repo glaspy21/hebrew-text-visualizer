@@ -40,6 +40,17 @@ public class Root {
     @Column(nullable = false)
     private boolean derivationUncertain = false;
 
+    // True if this root's consonantalSkeleton collides with another root's,
+    // despite the two being unrelated primitive roots once Masoretic vowel
+    // points are stripped - e.g. שָׂחַט "squeeze" (H7818) vs שָׁחַט "slaughter"
+    // (H7819), both שחט bare. Computed by HomographClusterer as a post-
+    // ingestion pass, once all Root rows for a run exist - see
+    // GenesisIngestionRunner. This is a passive UI marker only: flagged roots
+    // are NOT merged or hidden, per PROJECT_NOTES.md's "Homograph detection is
+    // separate from root grouping".
+    @Column(nullable = false)
+    private boolean homograph = false;
+
     // English gloss for display, e.g. "to reign" - optional, nice for the UI tooltip
     @Column(length = 500)
     private String glossEnglish;
@@ -59,6 +70,8 @@ public class Root {
     public String getConsonantalSkeleton() { return consonantalSkeleton; }
     public boolean isDerivationUncertain() { return derivationUncertain; }
     public void setDerivationUncertain(boolean derivationUncertain) { this.derivationUncertain = derivationUncertain; }
+    public boolean isHomograph() { return homograph; }
+    public void setHomograph(boolean homograph) { this.homograph = homograph; }
     public String getGlossEnglish() { return glossEnglish; }
     public void setGlossEnglish(String glossEnglish) { this.glossEnglish = glossEnglish; }
 }
