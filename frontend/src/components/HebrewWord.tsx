@@ -44,6 +44,9 @@ export function HebrewWord({
         boxShadow: tracked ? "inset 0 -3px 0 0 var(--color-tracker)" : undefined,
       }}
       title={title}
+      // Lets FocusWindow find the tracked word in the DOM to measure and
+      // pin its scroll position, without a fragile title-text query.
+      data-tracked={tracked ? "true" : undefined}
     >
       {displayText}
     </span>

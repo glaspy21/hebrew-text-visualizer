@@ -2,6 +2,7 @@ import { notFound } from "next/navigation";
 import { fetchThrough, fetchVerse } from "@/lib/api";
 import { VerseReader } from "@/components/VerseReader";
 import { RangeNavigator } from "@/components/RangeNavigator";
+import { FocusWindow } from "@/components/FocusWindow";
 
 // The progressive-range reading route: always starts at the book's own
 // first verse (see the /through backend endpoint) and runs through this
@@ -63,7 +64,7 @@ export default async function ThroughVersePage({
   }));
 
   return (
-    <>
+    <div className="flex min-h-[75vh] flex-col">
       <RangeNavigator
         book={book}
         chapter={chapterNum}
@@ -73,11 +74,15 @@ export default async function ThroughVersePage({
         versesSoFar={versesSoFar}
         nextVerse={nextVerse}
       />
-      <VerseReader
-        verses={verses}
-        book={book}
-        tracker={{ chapter: chapterNum, verse: verseNum, wordsIncluded: resolvedWordsIncluded }}
-      />
-    </>
+      <div className="flex flex-1 items-center">
+        <FocusWindow>
+          <VerseReader
+            verses={verses}
+            book={book}
+            tracker={{ chapter: chapterNum, verse: verseNum, wordsIncluded: resolvedWordsIncluded }}
+          />
+        </FocusWindow>
+      </div>
+    </div>
   );
 }
