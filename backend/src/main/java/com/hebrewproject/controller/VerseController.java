@@ -101,14 +101,20 @@ public class VerseController {
                     w.getRootStrongIdRaw(),
                     w.getPartOfSpeech(),
                     c != null ? c.countInRange : null,
-                    c != null ? c.colorHex : "#FFFFFF"
+                    c != null ? c.colorHex : "#FFFFFF",
+                    // Passive marker only - per PROJECT_NOTES.md's "Homograph
+                    // detection is separate from root grouping", a flagged
+                    // root is never merged with or hidden from its unrelated
+                    // consonantal-skeleton twin (e.g. squeeze vs slaughter,
+                    // both שחט bare) - it's still counted/colored on its own.
+                    w.getRoot().isHomograph()
             );
         }).collect(Collectors.toList());
         return new VerseResponse(verse.getOsisId(), verse.getChapterNumber(), verse.getVerseNumber(), wordResponses);
     }
 
     public record WordResponse(String surfaceForm, String rootId, String partOfSpeech,
-                                Integer countInRange, String colorHex) {}
+                                Integer countInRange, String colorHex, boolean homograph) {}
 
     public record VerseResponse(String osisId, Integer chapter, Integer verse, List<WordResponse> words) {}
 }
