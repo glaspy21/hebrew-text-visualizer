@@ -21,13 +21,20 @@ export function HebrewWord({ word }: { word: WordResponse }) {
     .filter(Boolean)
     .join(" · ");
 
+  // surfaceForm carries OSHB's "/" morpheme-boundary marker between a
+  // grammatical prefix and the word it attaches to (e.g. "בְּ/רֵאשִׁית") -
+  // that's source-data punctuation, not part of the Hebrew text itself, so
+  // it's stripped for display only; rootStrongIdRaw/resolvedRootId etc. are
+  // untouched.
+  const displayText = word.surfaceForm.replaceAll("/", "");
+
   return (
     <span
       className="rounded px-0.5 py-px"
       style={colorHex ? { backgroundColor: colorHex } : undefined}
       title={title}
     >
-      {word.surfaceForm}
+      {displayText}
     </span>
   );
 }
