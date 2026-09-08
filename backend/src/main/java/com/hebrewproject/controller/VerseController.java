@@ -101,7 +101,13 @@ public class VerseController {
                     w.getRootStrongIdRaw(),
                     w.getPartOfSpeech(),
                     c != null ? c.countInRange : null,
-                    c != null ? c.colorHex : "#FFFFFF",
+                    // Null in both fields whenever countInRange <= 1 (or the
+                    // word wasn't found in the range at all) - the frontend
+                    // decides "no highlight" from countInRange, not from a
+                    // sentinel color value. See PROJECT_NOTES.md's frontend
+                    // color-contrast writeup for why there are two fields.
+                    c != null ? c.colorHexDark : null,
+                    c != null ? c.colorHexLight : null,
                     // Passive marker only - per PROJECT_NOTES.md's "Homograph
                     // detection is separate from root grouping", a flagged
                     // root is never merged with or hidden from its unrelated
@@ -114,7 +120,8 @@ public class VerseController {
     }
 
     public record WordResponse(String surfaceForm, String rootId, String partOfSpeech,
-                                Integer countInRange, String colorHex, boolean homograph) {}
+                                Integer countInRange, String colorHexDark, String colorHexLight,
+                                boolean homograph) {}
 
     public record VerseResponse(String osisId, Integer chapter, Integer verse, List<WordResponse> words) {}
 }
