@@ -97,8 +97,12 @@ public class VerseController {
         List<WordResponse> wordResponses = words.stream().map(w -> {
             RangeColorCalculator.WordColorResult c = colors.get(w.getId());
             return new WordResponse(
+                    w.getId(),
                     w.getSurfaceForm(),
                     w.getRootStrongIdRaw(),
+                    w.getRoot().getId(),
+                    w.getRoot().getStrongId(),
+                    w.getRoot().isDerivationUncertain(),
                     w.getPartOfSpeech(),
                     c != null ? c.countInRange : null,
                     // Null in both fields whenever countInRange <= 1 (or the
@@ -119,9 +123,17 @@ public class VerseController {
         return new VerseResponse(verse.getOsisId(), verse.getChapterNumber(), verse.getVerseNumber(), wordResponses);
     }
 
-    public record WordResponse(String surfaceForm, String rootId, String partOfSpeech,
-                                Integer countInRange, String colorHexDark, String colorHexLight,
-                                boolean homograph) {}
+    // rootStrongIdRaw is the RAW per-word Strong's ID before derivation-chain
+    // resolution (e.g. "4427 a" for מָלַךְ), kept for debugging/display -
+    // resolvedRootId/resolvedRootStrongId are the actual grouping key
+    // (Root.id / Root.strongId) frontend code should use to match occurrences
+    // of the same true root. Previously these were conflated under one
+    // ambiguously-named "rootId" field that actually only ever returned the
+    // raw value - see PROJECT_NOTES.md.
+    public record WordResponse(Long wordId, String surfaceForm, String rootStrongIdRaw,
+                                Long resolvedRootId, String resolvedRootStrongId, boolean derivationUncertain,
+                                String partOfSpeech, Integer countInRange,
+                                String colorHexDark, String colorHexLight, boolean homograph) {}
 
     public record VerseResponse(String osisId, Integer chapter, Integer verse, List<WordResponse> words) {}
 }
