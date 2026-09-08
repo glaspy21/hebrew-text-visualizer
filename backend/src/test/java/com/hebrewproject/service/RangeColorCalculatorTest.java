@@ -29,14 +29,15 @@ class RangeColorCalculatorTest {
     }
 
     @Test
-    void rootAppearingOnceInRangeIsWhite() {
+    void rootAppearingOnceInRangeHasNoHighlightInEitherTheme() {
         Word onlyWord = wordWithRoot(1L, "7225");
 
         Map<Long, RangeColorCalculator.WordColorResult> colors =
                 calculator.computeColors(List.of(onlyWord));
 
         assertThat(colors.get(1L).countInRange).isEqualTo(1);
-        assertThat(colors.get(1L).colorHex).isEqualTo("#FFFFFF");
+        assertThat(colors.get(1L).colorHexDark).isNull();
+        assertThat(colors.get(1L).colorHexLight).isNull();
     }
 
     @Test
@@ -53,8 +54,10 @@ class RangeColorCalculatorTest {
 
         assertThat(colors.get(1L).countInRange).isEqualTo(2);
         assertThat(colors.get(3L).countInRange).isEqualTo(2);
-        assertThat(colors.get(1L).colorHex).isEqualTo("#00C800");
-        assertThat(colors.get(1L).colorHex).isEqualTo(colors.get(3L).colorHex);
+        assertThat(colors.get(1L).colorHexDark).isEqualTo("#0A7A40");
+        assertThat(colors.get(1L).colorHexLight).isEqualTo("#5AAA78");
+        assertThat(colors.get(1L).colorHexDark).isEqualTo(colors.get(3L).colorHexDark);
+        assertThat(colors.get(1L).colorHexLight).isEqualTo(colors.get(3L).colorHexLight);
     }
 
     @Test
@@ -77,12 +80,12 @@ class RangeColorCalculatorTest {
 
         assertThat(colors.get(1L).countInRange).isEqualTo(2);
         assertThat(colors.get(2L).countInRange).isEqualTo(2);
-        assertThat(colors.get(1L).colorHex).isEqualTo("#00C800");
-        assertThat(colors.get(1L).colorHex).isEqualTo(colors.get(2L).colorHex);
+        assertThat(colors.get(1L).colorHexDark).isEqualTo("#0A7A40");
+        assertThat(colors.get(1L).colorHexDark).isEqualTo(colors.get(2L).colorHexDark);
     }
 
     @Test
-    void mostFrequentRootInRangeIsDarkRed_relativeToThatRangeOnly() {
+    void mostFrequentRootInRangeIsTheRedEndpoint_relativeToThatRangeOnly() {
         // rootC is the range's own max (3x) - the scale's red endpoint is
         // defined relative to THIS range, not any fixed global count.
         Word a = wordWithRoot(1L, "A"); // occurs once
@@ -95,12 +98,12 @@ class RangeColorCalculatorTest {
         Map<Long, RangeColorCalculator.WordColorResult> colors =
                 calculator.computeColors(List.of(a, b1, b2, c1, c2, c3));
 
-        assertThat(colors.get(1L).colorHex).isEqualTo("#FFFFFF");
-        assertThat(colors.get(2L).colorHex).isEqualTo("#00C800");
-        assertThat(colors.get(3L).colorHex).isEqualTo("#00C800");
-        assertThat(colors.get(4L).colorHex).isEqualTo("#280000");
-        assertThat(colors.get(5L).colorHex).isEqualTo("#280000");
-        assertThat(colors.get(6L).colorHex).isEqualTo("#280000");
+        assertThat(colors.get(1L).colorHexDark).isNull();
+        assertThat(colors.get(2L).colorHexDark).isEqualTo("#0A7A40");
+        assertThat(colors.get(3L).colorHexDark).isEqualTo("#0A7A40");
+        assertThat(colors.get(4L).colorHexDark).isEqualTo("#BE2828");
+        assertThat(colors.get(5L).colorHexDark).isEqualTo("#BE2828");
+        assertThat(colors.get(6L).colorHexDark).isEqualTo("#BE2828");
     }
 
     @Test
@@ -117,7 +120,7 @@ class RangeColorCalculatorTest {
 
         Map<Long, RangeColorCalculator.WordColorResult> narrowRange =
                 calculator.computeColors(List.of(x1, x2));
-        assertThat(narrowRange.get(1L).colorHex).isEqualTo("#00C800");
+        assertThat(narrowRange.get(1L).colorHexDark).isEqualTo("#0A7A40");
 
         Word y1 = wordWithRoot(3L, "Y");
         Word y2 = wordWithRoot(4L, "Y");
@@ -126,7 +129,7 @@ class RangeColorCalculatorTest {
                 calculator.computeColors(List.of(x1, x2, y1, y2, y3));
 
         assertThat(widerRange.get(1L).countInRange).isEqualTo(2);
-        assertThat(widerRange.get(1L).colorHex).isEqualTo("#00C800");
-        assertThat(widerRange.get(3L).colorHex).isEqualTo("#280000"); // now the range's own max
+        assertThat(widerRange.get(1L).colorHexDark).isEqualTo("#0A7A40");
+        assertThat(widerRange.get(3L).colorHexDark).isEqualTo("#BE2828"); // now the range's own max
     }
 }

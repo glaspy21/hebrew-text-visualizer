@@ -40,10 +40,14 @@ public class RangeColorCalculator {
 
     public static class WordColorResult {
         public final int countInRange;
-        public final String colorHex;
-        public WordColorResult(int countInRange, String colorHex) {
+        // Null in both fields when countInRange <= 1 - "no highlight" is a
+        // frontend decision driven by countInRange, not a sentinel color.
+        public final String colorHexDark;
+        public final String colorHexLight;
+        public WordColorResult(int countInRange, String colorHexDark, String colorHexLight) {
             this.countInRange = countInRange;
-            this.colorHex = colorHex;
+            this.colorHexDark = colorHexDark;
+            this.colorHexLight = colorHexLight;
         }
     }
 
@@ -72,20 +76,21 @@ public class RangeColorCalculator {
         // call, this includes ALL words, grammatical particles included.
         int rangeMax = countPerRoot.values().stream().mapToInt(Integer::intValue).max().orElse(1);
 
-        // Step 3: compute one color per root, using the count-of-2-is-green,
-        // count-of-rangeMax-is-darkest-red scale we already validated
-        Map<String, String> colorPerRoot = new HashMap<>();
+        // Step 3: compute one (dark-theme, light-theme) color pair per root,
+        // using the count-of-2-is-green, count-of-rangeMax-is-reddest scale
+        // we already validated
+        Map<String, ColorScaleCalculator.ThemedColor> colorPerRoot = new HashMap<>();
         for (Map.Entry<String, Integer> entry : countPerRoot.entrySet()) {
             colorPerRoot.put(entry.getKey(), colorScaleCalculator.occurrenceToColor(entry.getValue(), rangeMax));
         }
 
-        // Step 4: apply each root's color to EVERY word instance sharing that root
+        // Step 4: apply each root's colors to EVERY word instance sharing that root
         Map<Long, WordColorResult> result = new HashMap<>();
         for (Word w : wordsInRange) {
             String rootId = w.getRoot().getStrongId();
             int count = countPerRoot.get(rootId);
-            String color = colorPerRoot.get(rootId);
-            result.put(w.getId(), new WordColorResult(count, color));
+            ColorScaleCalculator.ThemedColor color = colorPerRoot.get(rootId);
+            result.put(w.getId(), new WordColorResult(count, color.dark(), color.light()));
         }
         return result;
     }
