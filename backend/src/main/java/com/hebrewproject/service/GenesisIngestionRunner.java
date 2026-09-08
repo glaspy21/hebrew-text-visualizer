@@ -26,8 +26,11 @@ import java.io.ByteArrayInputStream;
 import java.security.MessageDigest;
 import java.time.Instant;
 import java.util.HashMap;
+import java.util.List;
 import java.util.Map;
 import java.util.Optional;
+import java.util.Set;
+import java.util.stream.Collectors;
 
 /**
  * Port of parse_gen1.py, wired into Spring's lifecycle via ApplicationRunner
@@ -55,6 +58,7 @@ public class GenesisIngestionRunner implements ApplicationRunner {
     private final RootRepository rootRepository;
     private final StrongsLexiconParser lexiconParser;
     private final RootDerivationResolver rootDerivationResolver;
+    private final HomographClusterer homographClusterer;
 
     public GenesisIngestionRunner(VerseRepository verseRepository,
                                    WordRepository wordRepository,
@@ -62,7 +66,8 @@ public class GenesisIngestionRunner implements ApplicationRunner {
                                    IngestionMetadataRepository ingestionMetadataRepository,
                                    RootRepository rootRepository,
                                    StrongsLexiconParser lexiconParser,
-                                   RootDerivationResolver rootDerivationResolver) {
+                                   RootDerivationResolver rootDerivationResolver,
+                                   HomographClusterer homographClusterer) {
         this.verseRepository = verseRepository;
         this.wordRepository = wordRepository;
         this.rootOccurrenceRepository = rootOccurrenceRepository;
@@ -70,6 +75,7 @@ public class GenesisIngestionRunner implements ApplicationRunner {
         this.rootRepository = rootRepository;
         this.lexiconParser = lexiconParser;
         this.rootDerivationResolver = rootDerivationResolver;
+        this.homographClusterer = homographClusterer;
     }
 
     @Override
@@ -78,11 +84,19 @@ public class GenesisIngestionRunner implements ApplicationRunner {
         byte[] xmlBytes = readResourceBytes(SOURCE_FILE);
         String checksum = sha256Hex(xmlBytes);
 
+        // Loaded unconditionally, even when Gen.xml ingestion itself is about
+        // to be skipped below - HomographClusterer needs it every startup,
+        // not just on a fresh ingest. HebrewStrong.xml has its own stable
+        // content independent of Gen.xml's checksum, and ~8,700 entries is
+        // cheap to parse once per startup.
+        Map<String, StrongsLexiconEntry> lexiconEntries = lexiconParser.parseClasspathResource(LEXICON_FILE);
+
         Optional<IngestionMetadata> existing = ingestionMetadataRepository.findById(SOURCE_FILE);
         if (existing.isPresent() && existing.get().getSha256Checksum().equals(checksum)) {
             System.out.printf("[Ingestion] %s already ingested at sha256 %s (%d verses, %d words, completed %s) - skipping.%n",
                     SOURCE_FILE, checksum, existing.get().getVerseCount(), existing.get().getWordCount(),
                     existing.get().getCompletedAt());
+            runHomographPass(lexiconEntries);
             return;
         }
 
@@ -105,12 +119,9 @@ public class GenesisIngestionRunner implements ApplicationRunner {
 
         Document doc = parseDocument(xmlBytes);
 
-        // Loaded once per ingestion run, not per word - HebrewStrong.xml doesn't
-        // change within a run, and re-parsing ~8,700 entries per word would be
-        // wasteful. rootCache is the get-or-create memo for resolved Root rows
-        // within this same run (see resolveRoot below) - separate from the
-        // lexicon map, which is read-only.
-        Map<String, StrongsLexiconEntry> lexiconEntries = lexiconParser.parseClasspathResource(LEXICON_FILE);
+        // rootCache is the get-or-create memo for resolved Root rows within
+        // this same run (see resolveRoot below) - separate from the lexicon
+        // map above, which is read-only.
         Map<String, Root> rootCache = new HashMap<>();
 
         // running root-occurrence tally, exactly like running_counts in parse_gen1.py
@@ -182,6 +193,44 @@ public class GenesisIngestionRunner implements ApplicationRunner {
 
         System.out.printf("[Ingestion] Done. %d verses, %d words processed. %d unique roots found.%n",
                 canonicalOrder, wordCount, runningCounts.size());
+
+        runHomographPass(lexiconEntries);
+    }
+
+    /**
+     * Post-ingestion pass (per PROJECT_NOTES.md roadmap item 2): once every
+     * Root row for this run exists, cluster them by consonantalSkeleton via
+     * HomographClusterer and persist the result on Root.homograph. Runs
+     * against rootRepository.findAll() rather than just this run's rootCache,
+     * since Root rows persist across re-ingestions (see resolveRoot's doc
+     * comment) and a checksum-skip run has no rootCache of its own at all.
+     *
+     * Deliberately unconditional - re-clusters every startup, not gated by
+     * Gen.xml's checksum. Cheap (a few thousand roots), idempotent, and it
+     * sidesteps the exact operational catch the last session hit with
+     * Word.root: a DB ingested before this feature existed would otherwise
+     * need someone to manually delete backend/data/ to ever get flags set.
+     */
+    private void runHomographPass(Map<String, StrongsLexiconEntry> lexiconEntries) {
+        List<Root> allRoots = rootRepository.findAll();
+        Map<String, List<Root>> clusters = homographClusterer.findClusters(allRoots, lexiconEntries);
+
+        Set<Long> flaggedIds = clusters.values().stream()
+                .flatMap(List::stream)
+                .map(Root::getId)
+                .collect(Collectors.toSet());
+
+        // Set every root's flag explicitly (not just the ones newly entering a
+        // cluster) so a root that stops clustering - e.g. after a lexicon
+        // update, hypothetically - gets its stale flag cleared too, instead
+        // of correctness silently depending on flags starting false.
+        for (Root root : allRoots) {
+            root.setHomograph(flaggedIds.contains(root.getId()));
+        }
+
+        rootRepository.saveAll(allRoots);
+        System.out.printf("[Homographs] %d clusters found among %d roots - %d roots flagged.%n",
+                clusters.size(), allRoots.size(), flaggedIds.size());
     }
 
     /**

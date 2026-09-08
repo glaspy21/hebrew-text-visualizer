@@ -83,6 +83,45 @@ class GenesisIngestionRunnerIntegrationTest {
     }
 
     @Test
+    void squeezeAndSlaughterAreFlaggedHomographsButRemainSeparateRoots() {
+        // שָׂחַט "squeeze" (H7818, Gen 40:11) vs שָׁחַט "slaughter" (H7819, Gen
+        // 22:10, tagged "7819 a" per OSHB's homonym-sense suffix) - two
+        // different primitive roots that only collide once vowel points are
+        // stripped. Both must be flagged, and NEITHER merged nor hidden - see
+        // PROJECT_NOTES.md's "Homograph detection is separate from root
+        // grouping".
+        Word squeeze = firstWordWithRawId("7818");
+        Word slaughter = firstWordWithRawId("7819 a");
+
+        assertThat(squeeze.getRoot().getStrongId()).isEqualTo("7818");
+        assertThat(slaughter.getRoot().getStrongId()).isEqualTo("7819");
+        assertThat(squeeze.getRoot().getId()).isNotEqualTo(slaughter.getRoot().getId());
+        assertThat(squeeze.getRoot().isHomograph()).isTrue();
+        assertThat(slaughter.getRoot().isHomograph()).isTrue();
+    }
+
+    @Test
+    void ordinaryRootIsNotFlaggedAHomograph() {
+        // מָלַךְ "reign" (H4427) has no consonantal-skeleton collision among
+        // Genesis's confirmed-primitive roots - a plain, unambiguous root
+        // should never get the homograph marker.
+        Word reign = firstWordWithRawId("4427 a");
+
+        assertThat(reign.getRoot().isHomograph()).isFalse();
+    }
+
+    @Test
+    void elohimIsNotFlaggedAHomographDespiteBeingUncertain() {
+        // H433 is a depth-1 stopping point, not a confirmed primitive root
+        // (derivationUncertain=true) - it must not participate in homograph
+        // clustering at all, per the "confirmed primitive roots only" decision.
+        Word elohim = firstWordWithRawId("430");
+
+        assertThat(elohim.getRoot().isDerivationUncertain()).isTrue();
+        assertThat(elohim.getRoot().isHomograph()).isFalse();
+    }
+
+    @Test
     void resolvedRootsAreFewerThanRawStrongsIds() {
         // Sanity check that grouping actually changes something: strictly
         // fewer Root rows than distinct raw Strong's IDs, since e.g. king and
