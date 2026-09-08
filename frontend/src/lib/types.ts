@@ -35,3 +35,17 @@ export interface RootResponse {
 }
 
 export type Theme = "dark" | "light";
+
+/**
+ * Marks the current end of the progressive analytical range - a visual
+ * underline on one word, per the range/tracker/navigation model. "end"
+ * means the target verse is fully included (tracker on its LAST word);
+ * "start" means it's excluded from coloring (tracker on its FIRST word,
+ * about to be read but not counted yet) - mirrors the /through endpoint's
+ * includeVerse flag.
+ */
+export interface RangeTracker {
+  chapter: number;
+  verse: number;
+  position: "start" | "end";
+}

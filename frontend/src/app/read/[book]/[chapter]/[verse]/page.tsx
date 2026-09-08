@@ -23,8 +23,15 @@ export default async function ThroughVersePage({
   const verseNum = Number(verse);
   if (!Number.isInteger(chapterNum) || !Number.isInteger(verseNum)) notFound();
 
-  const verses = await fetchThrough(book, chapterNum, verseNum, includeVerse !== "false");
+  const included = includeVerse !== "false";
+  const verses = await fetchThrough(book, chapterNum, verseNum, included);
   if (!verses || verses.length === 0) notFound();
 
-  return <VerseReader verses={verses} book={book} />;
+  return (
+    <VerseReader
+      verses={verses}
+      book={book}
+      tracker={{ chapter: chapterNum, verse: verseNum, position: included ? "end" : "start" }}
+    />
+  );
 }

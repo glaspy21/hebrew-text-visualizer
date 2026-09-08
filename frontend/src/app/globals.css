@@ -14,6 +14,9 @@
   --color-root-green: #0a7a40;
   --color-root-red: #be2828;
   --color-muted-border: #2a2a2a;
+  /* Range-tracker underline - a hue distinct from the green/red rarity
+     scale on purpose, so it never reads as a rarity signal itself. */
+  --color-tracker: #5ac8fa;
 }
 
 [data-theme="light"] {
@@ -22,6 +25,7 @@
   --color-root-green: #5aaa78;
   --color-root-red: #d2786e;
   --color-muted-border: #e3ddcf;
+  --color-tracker: #0b6fa8;
 }
 
 @theme inline {

@@ -1,14 +1,22 @@
-import type { VerseResponse } from "@/lib/types";
+import type { RangeTracker, VerseResponse } from "@/lib/types";
 import { VerseRow } from "./VerseRow";
 
 /**
- * Shared reader used by both routes (static chapter page, dynamic range
- * page) - per FRONTEND_PLAN.md, the chapter route is a convenience shortcut
- * onto the same reader, not a different mode. This is Phase 1's minimal
- * rendering: a flat list of verses grouped by chapter boundary. The
- * continuous-load / three-verse-focus-window behavior is Phase 2/3.
+ * Shared reader used by all routes - per FRONTEND_PLAN.md, the static
+ * chapter route is a convenience shortcut onto the same reader, not a
+ * different mode. `tracker` (optional - only the progressive-range route
+ * sets it) marks the current end of the analytical range with an underline;
+ * the three-verse-focus-window subduing is still Phase 3, not built here.
  */
-export function VerseReader({ verses, book }: { verses: VerseResponse[]; book: string }) {
+export function VerseReader({
+  verses,
+  book,
+  tracker,
+}: {
+  verses: VerseResponse[];
+  book: string;
+  tracker?: RangeTracker;
+}) {
   if (verses.length === 0) {
     return <p className="opacity-60">No verses found for this range.</p>;
   }
@@ -17,6 +25,8 @@ export function VerseReader({ verses, book }: { verses: VerseResponse[]; book: s
     <div>
       {verses.map((v, i) => {
         const showChapterMarker = i === 0 || v.chapter !== verses[i - 1].chapter;
+        const isTrackedVerse =
+          tracker != null && v.chapter === tracker.chapter && v.verse === tracker.verse;
         return (
           <div key={v.osisId}>
             {showChapterMarker && (
@@ -27,7 +37,7 @@ export function VerseReader({ verses, book }: { verses: VerseResponse[]; book: s
                 {book} {v.chapter}
               </h2>
             )}
-            <VerseRow verse={v} />
+            <VerseRow verse={v} trackerPosition={isTrackedVerse ? tracker.position : undefined} />
           </div>
         );
       })}
