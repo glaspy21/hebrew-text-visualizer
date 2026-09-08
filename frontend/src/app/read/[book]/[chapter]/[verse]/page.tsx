@@ -1,6 +1,7 @@
 import { notFound } from "next/navigation";
 import { fetchThrough } from "@/lib/api";
 import { VerseReader } from "@/components/VerseReader";
+import { RangeNavigator } from "@/components/RangeNavigator";
 
 // The progressive-range reading route: always starts at the book's own
 // first verse (see the /through backend endpoint) and runs through this
@@ -30,16 +31,26 @@ export default async function ThroughVersePage({
   if (!verses || verses.length === 0) notFound();
 
   const targetVerse = verses.find((v) => v.chapter === chapterNum && v.verse === verseNum);
+  const verseWordCount = targetVerse?.words.length ?? 0;
   // wordsIncludedParam omitted means "the whole verse" (the backend's own
   // default) - resolve that to a concrete count from what actually came
   // back, so the tracker lands on the true last word rather than guessing.
-  const resolvedWordsIncluded = wordsIncludedParam ?? targetVerse?.words.length ?? 0;
+  const resolvedWordsIncluded = wordsIncludedParam ?? verseWordCount;
 
   return (
-    <VerseReader
-      verses={verses}
-      book={book}
-      tracker={{ chapter: chapterNum, verse: verseNum, wordsIncluded: resolvedWordsIncluded }}
-    />
+    <>
+      <RangeNavigator
+        book={book}
+        chapter={chapterNum}
+        verse={verseNum}
+        wordsIncluded={resolvedWordsIncluded}
+        verseWordCount={verseWordCount}
+      />
+      <VerseReader
+        verses={verses}
+        book={book}
+        tracker={{ chapter: chapterNum, verse: verseNum, wordsIncluded: resolvedWordsIncluded }}
+      />
+    </>
   );
 }
