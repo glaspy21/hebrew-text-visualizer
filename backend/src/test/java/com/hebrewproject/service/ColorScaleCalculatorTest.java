@@ -9,61 +9,98 @@ class ColorScaleCalculatorTest {
     private final ColorScaleCalculator calculator = new ColorScaleCalculator();
 
     @Test
-    void firstOccurrenceIsWhite() {
-        assertThat(calculator.occurrenceToColor(1, 5)).isEqualTo("#FFFFFF");
+    void firstOccurrenceHasNoHighlightInEitherTheme() {
+        ColorScaleCalculator.ThemedColor color = calculator.occurrenceToColor(1, 5);
+        assertThat(color.dark()).isNull();
+        assertThat(color.light()).isNull();
     }
 
     @Test
-    void zeroOrNegativeOccurrenceIsAlsoTreatedAsWhite() {
+    void zeroOrNegativeOccurrenceIsAlsoTreatedAsNoHighlight() {
         // Defensive: the real pipeline never produces occurrence <= 0, but the
         // scale should still degrade sensibly rather than throwing/blending oddly.
-        assertThat(calculator.occurrenceToColor(0, 5)).isEqualTo("#FFFFFF");
+        ColorScaleCalculator.ThemedColor color = calculator.occurrenceToColor(0, 5);
+        assertThat(color.dark()).isNull();
+        assertThat(color.light()).isNull();
     }
 
     @Test
-    void secondOccurrenceIsBrightGreen_whenMaxIsExactlyTwo() {
-        assertThat(calculator.occurrenceToColor(2, 2)).isEqualTo("#00C800");
+    void secondOccurrenceIsTheGreenEndpoint_whenMaxIsExactlyTwo() {
+        ColorScaleCalculator.ThemedColor color = calculator.occurrenceToColor(2, 2);
+        assertThat(color.dark()).isEqualTo("#0A7A40");
+        assertThat(color.light()).isEqualTo("#5AAA78");
     }
 
     @Test
-    void secondOccurrenceIsBrightGreen_whenMaxIsLarger() {
+    void secondOccurrenceIsTheGreenEndpoint_whenMaxIsLarger() {
         // t = (2-2)/(max-2) = 0, so this must land exactly on the green endpoint,
         // not just "close to it" - the second occurrence IS the literary signal.
-        assertThat(calculator.occurrenceToColor(2, 10)).isEqualTo("#00C800");
+        ColorScaleCalculator.ThemedColor color = calculator.occurrenceToColor(2, 10);
+        assertThat(color.dark()).isEqualTo("#0A7A40");
+        assertThat(color.light()).isEqualTo("#5AAA78");
     }
 
     @Test
-    void maxOccurrenceIsExactlyDarkRed() {
-        assertThat(calculator.occurrenceToColor(7, 7)).isEqualTo("#280000");
+    void maxOccurrenceIsExactlyTheRedEndpoint() {
+        ColorScaleCalculator.ThemedColor color = calculator.occurrenceToColor(7, 7);
+        assertThat(color.dark()).isEqualTo("#BE2828");
+        assertThat(color.light()).isEqualTo("#D2786E");
     }
 
     @Test
-    void midpointBlendsLinearlyBetweenGreenAndRed() {
-        // occurrence=3, max=4 -> t=0.5 -> halfway between (0,200,0) and (40,0,0)
-        assertThat(calculator.occurrenceToColor(3, 4)).isEqualTo("#146400");
+    void midpointBlendsLinearlyBetweenGreenAndRed_inBothThemes() {
+        // occurrence=3, max=4 -> t=0.5 -> halfway between each theme's own
+        // green and red endpoints.
+        ColorScaleCalculator.ThemedColor color = calculator.occurrenceToColor(3, 4);
+        assertThat(color.dark()).isEqualTo("#645134");
+        assertThat(color.light()).isEqualTo("#969173");
     }
 
     @Test
-    void occurrenceBeyondMaxIsClampedToDarkRed() {
+    void occurrenceBeyondMaxIsClampedToTheRedEndpoint() {
         // Shouldn't happen from RangeColorCalculator's own bookkeeping, but the
         // scale itself must not produce out-of-palette colors if it ever does.
-        assertThat(calculator.occurrenceToColor(99, 7)).isEqualTo("#280000");
+        ColorScaleCalculator.ThemedColor color = calculator.occurrenceToColor(99, 7);
+        assertThat(color.dark()).isEqualTo("#BE2828");
+        assertThat(color.light()).isEqualTo("#D2786E");
     }
 
     @Test
-    void onlyGreenAndRedShadesEverAppear_neverYellowOrOrange() {
-        // Regression test for the bug this class's Javadoc calls out: an earlier
-        // HSL hue-rotation implementation swept through yellow/orange on the way
-        // from green to red. A direct RGB blend between fixed endpoints never
-        // should, since blue channel stays 0 and red only rises as green falls.
+    void darkThemeNeverDriftsTowardYellowOrOrange() {
+        assertNoOrangeDrift(10, 122, 64, 190, 40, 40, false);
+    }
+
+    @Test
+    void lightThemeNeverDriftsTowardYellowOrOrange() {
+        assertNoOrangeDrift(90, 170, 120, 210, 120, 110, true);
+    }
+
+    /**
+     * Regression check for the bug this class's Javadoc calls out: an earlier
+     * HSL hue-rotation implementation swept through yellow/orange on the way
+     * from green to red. A direct RGB blend between two fixed endpoints can't,
+     * as long as the red channel rises monotonically while the green channel
+     * falls monotonically across the whole blend - the two channels never both
+     * sit at a simultaneously-high "yellow" combination. Verified here by
+     * checking that monotonicity directly, rather than re-deriving hue.
+     */
+    private void assertNoOrangeDrift(int gR, int gG, int gB, int rR, int rG, int rB, boolean light) {
+        int previousR = Integer.MIN_VALUE;
+        int previousG = Integer.MAX_VALUE;
         for (int occurrence = 2; occurrence <= 20; occurrence++) {
-            String hex = calculator.occurrenceToColor(occurrence, 20);
+            ColorScaleCalculator.ThemedColor color = calculator.occurrenceToColor(occurrence, 20);
+            String hex = light ? color.light() : color.dark();
             int r = Integer.parseInt(hex.substring(1, 3), 16);
             int g = Integer.parseInt(hex.substring(3, 5), 16);
             int b = Integer.parseInt(hex.substring(5, 7), 16);
-            assertThat(b).isZero();
-            assertThat(r).isBetween(0, 40);
-            assertThat(g).isBetween(0, 200);
+
+            assertThat(r).isBetween(Math.min(gR, rR), Math.max(gR, rR));
+            assertThat(g).isBetween(Math.min(gG, rG), Math.max(gG, rG));
+            assertThat(b).isBetween(Math.min(gB, rB), Math.max(gB, rB));
+            assertThat(r).isGreaterThanOrEqualTo(previousR);
+            assertThat(g).isLessThanOrEqualTo(previousG);
+            previousR = r;
+            previousG = g;
         }
     }
 }
