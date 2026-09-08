@@ -11,6 +11,7 @@ import org.springframework.web.bind.annotation.*;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 import java.util.stream.Collectors;
 
 @RestController
@@ -72,7 +73,58 @@ public class VerseController {
         return ResponseEntity.ok(buildRangeResponse(verses));
     }
 
+    // GET /api/verses/Gen/through?chapter=1&verse=30&includeVerse=true
+    // -> the progressive reading range: every verse from the BOOK'S OWN FIRST
+    // verse through the given chapter/verse (inclusive), colors computed over
+    // that whole span. This is the "range always starts at Genesis 1:1"
+    // default from FRONTEND_PLAN.md's navigation model - a custom range start
+    // is a possible future addition, not built here.
+    //
+    // includeVerse=false excludes the target verse from the color computation
+    // (but not from the response) - lets the frontend show an "about to be
+    // read" verse with no highlights yet, tracker on its first word, while
+    // includeVerse=true (default) counts it fully, tracker on its last word.
+    @GetMapping("/{book}/through")
+    public ResponseEntity<List<VerseResponse>> getThrough(
+            @PathVariable String book,
+            @RequestParam Integer chapter,
+            @RequestParam Integer verse,
+            @RequestParam(defaultValue = "true") Boolean includeVerse) {
+
+        Verse target = verseRepository.findByBookAndChapterNumberAndVerseNumber(book, chapter, verse)
+                .orElse(null);
+        if (target == null) {
+            return ResponseEntity.notFound().build();
+        }
+        // canonicalOrder is canon-wide, not reset per book, so "start at 1"
+        // only happens to work for Genesis because it's canonically first -
+        // look up the book's own first verse instead of assuming that.
+        Verse first = verseRepository.findFirstByBookOrderByCanonicalOrderAsc(book)
+                .orElse(null);
+        if (first == null) {
+            return ResponseEntity.notFound().build();
+        }
+
+        List<Verse> verses = verseRepository.findByBookAndCanonicalOrderBetweenOrderByCanonicalOrder(
+                book, first.getCanonicalOrder(), target.getCanonicalOrder());
+
+        List<Verse> versesForColor = (includeVerse || verses.isEmpty())
+                ? verses
+                : verses.subList(0, verses.size() - 1);
+
+        return ResponseEntity.ok(buildRangeResponse(verses, versesForColor));
+    }
+
     private List<VerseResponse> buildRangeResponse(List<Verse> verses) {
+        return buildRangeResponse(verses, verses);
+    }
+
+    // versesForColor lets a caller render more verses than it counts - the
+    // "through" endpoint's includeVerse=false case: the target verse's text
+    // is still returned, but its words are left out of the color computation
+    // entirely, so nothing in it gets a highlight (not even white/no-signal -
+    // it's simply not part of the analytical range yet).
+    private List<VerseResponse> buildRangeResponse(List<Verse> verses, List<Verse> versesForColor) {
         // Fetch every word across every verse in the range FIRST, then compute
         // colors ONCE over the combined list - this is what makes cross-verse
         // patterns (like a word appearing once in Gen 1:5 and again in Gen 1:9)
@@ -81,7 +133,15 @@ public class VerseController {
         for (Verse v : verses) {
             allWordsInRange.addAll(wordRepository.findByVerse_IdOrderByPositionInVerse(v.getId()));
         }
-        Map<Long, RangeColorCalculator.WordColorResult> colors = rangeColorCalculator.computeColors(allWordsInRange);
+
+        List<Word> wordsForColor = allWordsInRange;
+        if (versesForColor.size() != verses.size()) {
+            Set<Long> colorScopeVerseIds = versesForColor.stream().map(Verse::getId).collect(Collectors.toSet());
+            wordsForColor = allWordsInRange.stream()
+                    .filter(w -> colorScopeVerseIds.contains(w.getVerse().getId()))
+                    .collect(Collectors.toList());
+        }
+        Map<Long, RangeColorCalculator.WordColorResult> colors = rangeColorCalculator.computeColors(wordsForColor);
 
         List<VerseResponse> responses = new ArrayList<>();
         for (Verse v : verses) {

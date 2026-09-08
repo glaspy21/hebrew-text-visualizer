@@ -23,4 +23,16 @@ public interface VerseRepository extends JpaRepository<Verse, Long> {
     // Powers the "3 to 5 verse range" search from your Phase 2 spec.
     List<Verse> findByBookAndChapterNumberAndVerseNumberBetweenOrderByVerseNumber(
             String book, Integer chapterNumber, Integer startVerse, Integer endVerse);
+
+    // The book's own first verse - the progressive reading range always
+    // starts here by default (canonicalOrder is canon-wide, not per-book, so
+    // "1" isn't a safe assumption once more than one book is ingested).
+    Optional<Verse> findFirstByBookOrderByCanonicalOrderAsc(String book);
+
+    // Powers the progressive range: "from the start of the book through
+    // wherever the reader currently is", crossing chapter boundaries at
+    // verse-level precision (canonicalOrder is monotonic across the whole
+    // book, so a single BETWEEN covers this without stitching chapters).
+    List<Verse> findByBookAndCanonicalOrderBetweenOrderByCanonicalOrder(
+            String book, Long startOrder, Long endOrder);
 }
