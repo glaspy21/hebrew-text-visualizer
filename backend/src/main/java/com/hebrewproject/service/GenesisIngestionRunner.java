@@ -261,6 +261,10 @@ public class GenesisIngestionRunner implements ApplicationRunner {
             String consonantalSkeleton = (entry != null && entry.getConsonantalSkeleton() != null) ? entry.getConsonantalSkeleton() : "";
             Root newRoot = new Root(resolvedId, hebrewPointed, consonantalSkeleton);
             newRoot.setDerivationUncertain(resolution.isFlagged() || entry == null);
+            if (entry != null) {
+                newRoot.setGlossEnglish(entry.getMeaning());
+                newRoot.setTransliteration(entry.getTransliteration());
+            }
             return rootRepository.save(newRoot);
         });
 

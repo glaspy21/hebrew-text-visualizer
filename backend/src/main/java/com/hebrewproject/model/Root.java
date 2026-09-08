@@ -51,9 +51,16 @@ public class Root {
     @Column(nullable = false)
     private boolean homograph = false;
 
-    // English gloss for display, e.g. "to reign" - optional, nice for the UI tooltip
+    // English gloss for display, e.g. "to reign; inceptively, to ascend the
+    // throne..." - from HebrewStrong.xml's <meaning>. Nullable: ~239 of
+    // 8,674 vendored entries have no <meaning> tag at all.
     @Column(length = 500)
     private String glossEnglish;
+
+    // Romanized reading for display, e.g. "mâlak" for מָלַךְ - from the
+    // lexicon headword's own xlit attribute, present on every vendored entry.
+    @Column(length = 100)
+    private String transliteration;
 
     protected Root() {
     }
@@ -74,4 +81,6 @@ public class Root {
     public void setHomograph(boolean homograph) { this.homograph = homograph; }
     public String getGlossEnglish() { return glossEnglish; }
     public void setGlossEnglish(String glossEnglish) { this.glossEnglish = glossEnglish; }
+    public String getTransliteration() { return transliteration; }
+    public void setTransliteration(String transliteration) { this.transliteration = transliteration; }
 }

@@ -44,4 +44,21 @@ class StrongsLexiconParserTest {
         StrongsLexiconEntry melek = entries.get("4428"); // מֶלֶךְ
         assertThat(melek.getConsonantalSkeleton()).isEqualTo("מלך");
     }
+
+    @Test
+    void parsesTransliterationAndMeaning() {
+        // H4427 (מָלַךְ, "to reign") - <w ... xlit="mâlak">, <meaning>to
+        // <def>reign</def>; ...</meaning>
+        StrongsLexiconEntry malak = entries.get("4427");
+        assertThat(malak.getTransliteration()).isEqualTo("mâlak");
+        assertThat(malak.getMeaning()).startsWith("to reign;");
+    }
+
+    @Test
+    void entryWithNoMeaningTagParsesToNullRatherThanThrowing() {
+        // Not every one of the 8,674 vendored entries has a <meaning> tag -
+        // this should degrade to null, not fail parsing for the whole file.
+        long withoutMeaning = entries.values().stream().filter(e -> e.getMeaning() == null).count();
+        assertThat(withoutMeaning).isGreaterThan(0);
+    }
 }

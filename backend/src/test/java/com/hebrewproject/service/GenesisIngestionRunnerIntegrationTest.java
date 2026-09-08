@@ -51,6 +51,8 @@ class GenesisIngestionRunnerIntegrationTest {
         assertThat(king.getRoot().getStrongId()).isEqualTo("4427");
         assertThat(king.getRoot().getId()).isEqualTo(reign.getRoot().getId());
         assertThat(king.getRoot().isDerivationUncertain()).isFalse();
+        assertThat(king.getRoot().getTransliteration()).isEqualTo("mâlak");
+        assertThat(king.getRoot().getGlossEnglish()).startsWith("to reign;");
     }
 
     @Test

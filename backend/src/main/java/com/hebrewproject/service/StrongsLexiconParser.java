@@ -62,8 +62,13 @@ public class StrongsLexiconParser {
             // direct children of <entry> itself, so this can't pick those up.
             Element headwordEl = firstChildElement(entryEl, "w");
             String hebrewPointed = headwordEl != null ? headwordEl.getTextContent() : null;
+            String transliteration = headwordEl != null ? headwordEl.getAttribute("xlit") : null;
+            if (transliteration != null && transliteration.isEmpty()) transliteration = null;
 
-            entries.put(id, new StrongsLexiconEntry(id, primitiveRoot, refs, hebrewPointed));
+            Element meaningEl = firstChildElement(entryEl, "meaning");
+            String meaning = meaningEl != null ? meaningEl.getTextContent() : null;
+
+            entries.put(id, new StrongsLexiconEntry(id, primitiveRoot, refs, hebrewPointed, transliteration, meaning));
         }
         return entries;
     }

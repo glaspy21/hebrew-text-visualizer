@@ -20,13 +20,18 @@ public class StrongsLexiconEntry {
     private final List<String> derivationRefs;
     private final String hebrewPointed;
     private final String consonantalSkeleton;
+    private final String transliteration;
+    private final String meaning;
 
-    public StrongsLexiconEntry(String id, boolean primitiveRoot, List<String> derivationRefs, String hebrewPointed) {
+    public StrongsLexiconEntry(String id, boolean primitiveRoot, List<String> derivationRefs, String hebrewPointed,
+                                String transliteration, String meaning) {
         this.id = id;
         this.primitiveRoot = primitiveRoot;
         this.derivationRefs = derivationRefs;
         this.hebrewPointed = hebrewPointed;
         this.consonantalSkeleton = toConsonantalSkeleton(hebrewPointed);
+        this.transliteration = transliteration;
+        this.meaning = meaning;
     }
 
     public String getId() { return id; }
@@ -34,6 +39,14 @@ public class StrongsLexiconEntry {
     public List<String> getDerivationRefs() { return derivationRefs; }
     public String getHebrewPointed() { return hebrewPointed; }
     public String getConsonantalSkeleton() { return consonantalSkeleton; }
+    // Romanized reading, e.g. "mâlak" for מָלַךְ - from the headword's own
+    // xlit attribute, present on all 8,674 vendored entries.
+    public String getTransliteration() { return transliteration; }
+    // English gloss, e.g. "to reign; inceptively, to ascend the throne..." -
+    // from <meaning>, concatenating its nested <def> text nodes the same way
+    // getHebrewPointed() already does for the headword. Null for the ~239
+    // entries (of 8,674) with no <meaning> tag at all.
+    public String getMeaning() { return meaning; }
 
     /**
      * Strip vowel points/cantillation marks, keeping only bare Hebrew
