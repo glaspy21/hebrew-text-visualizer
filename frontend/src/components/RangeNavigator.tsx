@@ -5,8 +5,15 @@ import { useEffect, useRef, type FormEvent } from "react";
 import type { VerseSummary } from "@/lib/types";
 
 const HOLD_INITIAL_DELAY_MS = 350; // time before the first auto-repeat
-const HOLD_MIN_INTERVAL_MS = 40; // fastest the ramp accelerates to
-const HOLD_ACCELERATION = 0.85; // interval shrinks by this factor each tick
+// Was 40ms (25 steps/sec) - too fast to track visually, and each step is a
+// real server round-trip, so requests piled up faster than they could
+// resolve/render, which is what made the tracker appear to vanish mid-hold.
+// 130ms (~7.7 steps/sec) is still clearly faster than pressing one at a
+// time, but stays smooth and keeps the tracker visible throughout.
+const HOLD_MIN_INTERVAL_MS = 130;
+// Was 0.85 (reaches the floor in ~9 steps, under 2s) - gentler now so the
+// ramp-up itself reads as a deliberate speed-up, not a sudden jolt.
+const HOLD_ACCELERATION = 0.92;
 // If a resume (see below) would happen more than this long after the last
 // real step, treat the hold as stale (the key was probably released while
 // the component was unmounted for some other reason) rather than resuming it.
