@@ -1,12 +1,35 @@
 "use client";
 
 import { useRouter } from "next/navigation";
-import { useEffect, type FormEvent } from "react";
+import { useEffect, useRef, type FormEvent } from "react";
 import type { VerseSummary } from "@/lib/types";
 
 const HOLD_INITIAL_DELAY_MS = 350; // time before the first auto-repeat
 const HOLD_MIN_INTERVAL_MS = 40; // fastest the ramp accelerates to
 const HOLD_ACCELERATION = 0.85; // interval shrinks by this factor each tick
+// If a resume (see below) would happen more than this long after the last
+// real step, treat the hold as stale (the key was probably released while
+// the component was unmounted for some other reason) rather than resuming it.
+const RESUME_STALE_AFTER_MS = 1000;
+
+interface Position {
+  chapter: number;
+  verse: number;
+  wordsIncluded: number;
+}
+
+// Module-level, NOT component state - crossing a verse boundary changes the
+// chapter/verse PATH segments, which makes this a different route match, so
+// React fully unmounts and remounts RangeNavigator rather than just handing
+// it new props. Every ref and piece of local state is discarded on that
+// remount, same as a fresh mount would be. Holding a key needs to survive
+// that so the ramp doesn't go silent the instant it crosses into a new
+// verse: the browser only sends one real keydown per physical press, so if
+// nothing here remembers "a key is still down" across the remount, the
+// fresh instance has no way to know it should keep ticking.
+let heldDirection: 1 | -1 | null = null;
+let heldInterval = HOLD_INITIAL_DELAY_MS;
+let lastTickAt = 0;
 
 /**
  * The navigation model: jump to a book/chapter/verse (with an "include
@@ -19,7 +42,9 @@ const HOLD_ACCELERATION = 0.85; // interval shrinks by this factor each tick
  * Holding a key auto-repeats with its own accelerating ramp (not the
  * browser's native, non-accelerating key repeat, which is ignored via
  * e.repeat) - starts at HOLD_INITIAL_DELAY_MS, speeds up toward
- * HOLD_MIN_INTERVAL_MS the longer it's held.
+ * HOLD_MIN_INTERVAL_MS the longer it's held, and keeps running (ramp speed
+ * included) across verse-boundary crossings until keyup - see the
+ * module-level state above for why that needs to live outside React.
  *
  * Stepping crosses verse boundaries: retreating past a verse's first word
  * (wordsIncluded 0) lands on the PREVIOUS verse's last word (using data
@@ -27,8 +52,9 @@ const HOLD_ACCELERATION = 0.85; // interval shrinks by this factor each tick
  * so backward crossing has no depth limit). Advancing past a verse's last
  * word lands on the NEXT verse's first word (wordsIncluded 0) using the
  * single-verse lookahead in nextVerse - only one boundary of forward
- * headroom is fetched, so a very long forward hold clamps at the end of
- * that next verse rather than fetching further ahead.
+ * headroom is fetched, so a very fast hold that reaches a second forward
+ * boundary before that first crossing's navigation has resolved clamps
+ * until the fresh data arrives, rather than fetching further ahead itself.
  *
  * Inputs are uncontrolled (defaultValue, not value/onChange) - the form is
  * keyed on the current position, so React remounts (and re-defaults) it
@@ -54,6 +80,25 @@ export function RangeNavigator({
 }) {
   const router = useRouter();
 
+  // Always the latest render's data, read fresh at tick time from inside
+  // the listener effect below. Synced via an effect, not written during
+  // render - React refs must only be read/written outside of render.
+  const dataRef = useRef({ chapter, verse, verseWordCount, versesSoFar, nextVerse });
+  useEffect(() => {
+    dataRef.current = { chapter, verse, verseWordCount, versesSoFar, nextVerse };
+  }, [chapter, verse, verseWordCount, versesSoFar, nextVerse]);
+
+  // The ahead-of-the-server position for the life of one hold gesture -
+  // fine to re-seed fresh on every mount (including a boundary-crossing
+  // remount): the props at that point already reflect wherever the last
+  // step landed, which is exactly the right starting point.
+  const posRef = useRef<Position>({ chapter, verse, wordsIncluded });
+  useEffect(() => {
+    if (heldDirection == null) {
+      posRef.current = { chapter, verse, wordsIncluded };
+    }
+  }, [chapter, verse, wordsIncluded]);
+
   function goTo(e: FormEvent<HTMLFormElement>) {
     e.preventDefault();
     const data = new FormData(e.currentTarget);
@@ -64,68 +109,67 @@ export function RangeNavigator({
     router.push(`/read/${book}/${c}/${v}${query}`);
   }
 
-  // Deliberately excludes `wordsIncluded` (and the other position-derived
-  // props) from the dependency array: each step's navigation eventually
-  // updates those props, and reacting to that would tear down and rebuild
-  // this effect mid-hold, resetting the acceleration ramp on every single
-  // step. `pos` below is the local, ahead-of-the-server position for the
-  // life of one hold gesture; it's seeded fresh whenever a REAL navigation
-  // (a different chapter/verse) actually happens.
   useEffect(() => {
-    let pos = { chapter, verse, wordsIncluded };
-    let heldDirection: 1 | -1 | null = null;
     let timer: ReturnType<typeof setTimeout> | null = null;
-    let interval = HOLD_INITIAL_DELAY_MS;
 
     function wordCountFor(c: number, v: number): number {
+      const { chapter, verse, verseWordCount, nextVerse, versesSoFar } = dataRef.current;
       if (c === chapter && v === verse) return verseWordCount;
       if (nextVerse && c === nextVerse.chapter && v === nextVerse.verse) return nextVerse.wordCount;
       return versesSoFar.find((x) => x.chapter === c && x.verse === v)?.wordCount ?? 0;
     }
 
     function fireStep(direction: 1 | -1) {
+      const pos = posRef.current;
+      const { chapter, verse, nextVerse, versesSoFar } = dataRef.current;
+      let next: Position;
+
       if (direction === 1) {
         if (pos.wordsIncluded < wordCountFor(pos.chapter, pos.verse)) {
-          pos = { ...pos, wordsIncluded: pos.wordsIncluded + 1 };
+          next = { ...pos, wordsIncluded: pos.wordsIncluded + 1 };
         } else if (nextVerse && pos.chapter === chapter && pos.verse === verse) {
-          pos = { chapter: nextVerse.chapter, verse: nextVerse.verse, wordsIncluded: 0 };
+          next = { chapter: nextVerse.chapter, verse: nextVerse.verse, wordsIncluded: 0 };
         } else {
-          return; // no more forward data - clamp
+          return; // no more forward data yet - clamp
         }
       } else {
         if (pos.wordsIncluded > 0) {
-          pos = { ...pos, wordsIncluded: pos.wordsIncluded - 1 };
+          next = { ...pos, wordsIncluded: pos.wordsIncluded - 1 };
         } else {
           const idx = versesSoFar.findIndex((x) => x.chapter === pos.chapter && x.verse === pos.verse);
           if (idx > 0) {
             const prev = versesSoFar[idx - 1];
-            pos = { chapter: prev.chapter, verse: prev.verse, wordsIncluded: prev.wordCount };
+            next = { chapter: prev.chapter, verse: prev.verse, wordsIncluded: prev.wordCount };
           } else {
             return; // at the book's own first verse - clamp
           }
         }
       }
-      router.replace(`/read/${book}/${pos.chapter}/${pos.verse}?wordsIncluded=${pos.wordsIncluded}`);
+
+      posRef.current = next;
+      lastTickAt = Date.now();
+      router.replace(`/read/${book}/${next.chapter}/${next.verse}?wordsIncluded=${next.wordsIncluded}`);
     }
 
     function tick() {
       if (heldDirection == null) return;
       fireStep(heldDirection);
-      interval = Math.max(HOLD_MIN_INTERVAL_MS, interval * HOLD_ACCELERATION);
-      timer = setTimeout(tick, interval);
+      heldInterval = Math.max(HOLD_MIN_INTERVAL_MS, heldInterval * HOLD_ACCELERATION);
+      timer = setTimeout(tick, heldInterval);
     }
 
     function startHold(direction: 1 | -1) {
       if (heldDirection === direction) return;
-      stopHold();
+      if (timer != null) clearTimeout(timer);
       heldDirection = direction;
-      interval = HOLD_INITIAL_DELAY_MS;
+      heldInterval = HOLD_INITIAL_DELAY_MS;
       fireStep(direction);
-      timer = setTimeout(tick, interval);
+      timer = setTimeout(tick, heldInterval);
     }
 
     function stopHold() {
       heldDirection = null;
+      heldInterval = HOLD_INITIAL_DELAY_MS;
       if (timer != null) clearTimeout(timer);
       timer = null;
     }
@@ -161,13 +205,27 @@ export function RangeNavigator({
 
     window.addEventListener("keydown", onKeyDown);
     window.addEventListener("keyup", onKeyUp);
+
+    // Resume a hold that survived a boundary-crossing remount - the key may
+    // still be physically down with no new keydown event to tell us that.
+    // The staleness check guards against navigating away mid-hold some
+    // other way (a Link, browser back) and back again much later, which
+    // should NOT resume a phantom hold from a stale module variable.
+    if (heldDirection != null && Date.now() - lastTickAt < RESUME_STALE_AFTER_MS) {
+      timer = setTimeout(tick, heldInterval);
+    } else {
+      heldDirection = null;
+    }
+
     return () => {
       window.removeEventListener("keydown", onKeyDown);
       window.removeEventListener("keyup", onKeyUp);
-      stopHold();
+      // Only this instance's timer - NOT the module-level held state, which
+      // must survive a boundary-crossing remount rather than being cancelled.
+      if (timer != null) clearTimeout(timer);
+      timer = null;
     };
-    // eslint-disable-next-line react-hooks/exhaustive-deps -- see the comment above this effect
-  }, [book, chapter, verse, verseWordCount, router]);
+  }, [book, router]);
 
   return (
     <form
