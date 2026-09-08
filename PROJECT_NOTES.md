@@ -1,5 +1,59 @@
 # Hebrew Text Rarity Visualizer — Project Notes
 
+## Session: 2026-09-07 — homograph flagging wired into Java
+
+Closed roadmap item 2, following the scoping decision from the previous
+homograph write-up below (cluster on CONFIRMED PRIMITIVE roots only -
+`StrongsLexiconEntry.isPrimitiveRoot()` true for a root's own lexicon entry,
+not merely `derivationUncertain == false`). Landed as four reviewable
+commits:
+
+1. Added `Root.homograph`, a persisted boolean, defaulting false.
+2. Added `HomographClusterer` (pure logic, no DB/Spring context) - groups
+   `Root` rows by `consonantalSkeleton` among confirmed primitives only,
+   keeping clusters of size 2+. `HomographClustererTest` runs it against the
+   real vendored `HebrewStrong.xml` and **re-verifies the 83-cluster figure
+   by actually computing it** (previously only a manual write-up claim), plus
+   confirms H193 is correctly excluded despite passing a naive
+   `derivationUncertain` check.
+3. Wired it into `GenesisIngestionRunner` as a post-ingestion pass over every
+   persisted `Root` row, persisting the flag both ways (so a stale flag can't
+   survive unnoticed). Deliberately made this run on EVERY startup, not
+   gated behind Gen.xml's checksum-skip check - otherwise it hits the exact
+   operational catch from the root-derivation session (a DB ingested before
+   this feature existed would never get flags set without manual
+   intervention). `GenesisIngestionRunnerIntegrationTest` covers the שחט
+   case directly against the real ingested data.
+4. Exposed the flag via `VerseController.WordResponse.homograph` - additive
+   metadata on the existing per-word response; grouping, counting, and
+   coloring are all unchanged. Verified live against the real running API for
+   both cited verses (see table below).
+
+**Real numbers, re-verified by actually running the code (not trusted from
+the prior write-up alone):**
+- **83 clusters among ALL 1,335+ primitive-marked entries in the whole
+  vendored lexicon** - confirmed exactly via `HomographClustererTest`,
+  running the real `HomographClusterer` + `StrongsLexiconParser` against the
+  real `HebrewStrong.xml`. This is the reference figure from "Key design
+  decisions" below, now backed by passing code rather than a manual count.
+- **26 clusters / 53 roots flagged among Genesis's own 1,249 ingested
+  roots**, under the same confirmed-primitives-only filter - this is the
+  actual production number, from a live ingestion run. It's a different,
+  smaller figure than the whole-lexicon 83 (expected: Genesis only uses a
+  subset of all primitive roots) and than the 113/25-way-noisy-cluster
+  figures previously estimated under a looser, non-primitives-only filter.
+
+**Real bug hit and fixed along the way:** Hibernate's `ddl-auto=update`
+generates a bare `alter table roots add column homograph boolean not null`
+with no default value - H2 rejects this against a table that already has
+rows (`NULL not allowed for column "HOMOGRAPH"`). Same class of issue, same
+fix, as the previous session's `IngestionMetadata` gap: delete the local
+`backend/data/` H2 files once and let a fresh ingestion recreate the schema
+from scratch. This project's `ddl-auto=update` is explicitly scoped to local
+dev only (see `application.properties`'s own comment) - a real migration
+tool (Flyway/Liquibase) would handle this gracefully, but isn't worth
+adopting yet at this project's size.
+
 ## Session: 2026-09-07 — root-derivation enrichment wired into Java
 
 Closed the biggest documented gap between the Python prototypes and the live
@@ -168,11 +222,12 @@ pick a side on cases like this.
 spelled identically once Masoretic vowel points are stripped, despite being
 totally unrelated words (e.g. שָׂחַט "squeeze" Gen 40:11 vs. שָׁחַט
 "slaughter" Gen 22:10 — both שחט in bare consonants). These get flagged for
-the UI, not merged and not ignored. No clustering code exists yet (checked -
-only `Root.consonantalSkeleton` is populated, as a side effect of the
-2026-09-07 root-derivation session); "flag homographs" is currently just a
-design decision plus a small, mechanical implementation once that decision
-is made. That decision, verified against the real vendored lexicon:
+the UI, not merged and not ignored. **Done as of the 2026-09-07 homograph
+session above** — `HomographClusterer` implements exactly the decision
+below, wired into ingestion and exposed as `Root.homograph` /
+`WordResponse.homograph`. The design decision, verified against the real
+vendored lexicon before implementation, and re-verified by actually running
+the code afterward:
 
 - **83 clusters is real, but only for TRUE PRIMITIVE roots** (1,335
   primitives → exactly 83 clusters, up to 6-way) - this is almost certainly
@@ -197,8 +252,14 @@ is made. That decision, verified against the real vendored lexicon:
   check but fail a strict `isPrimitiveRoot()` one. "Confirmed primitive"
   means the latter: filter on `StrongsLexiconEntry.isPrimitiveRoot()` being
   true for the root's own lexicon entry, not on the absence of a flag.
-- Whoever picks this up next should re-verify the 83-cluster figure once the
-  clustering code actually exists, rather than trusting this write-up alone.
+- **Re-verified (2026-09-07, homograph session): 83 is confirmed real** -
+  `HomographClustererTest` computes it directly from the real
+  `HebrewStrong.xml`, not trusted from this write-up. The actual production
+  figure, over just Genesis's 1,249 ingested roots under this same filter,
+  is **26 clusters / 53 roots flagged** - smaller than 83 because Genesis
+  only uses a subset of all primitive roots, and a different (stricter)
+  number than the 113/25-way-noisy-cluster estimates above, which used a
+  looser, non-primitives-only filter.
 
 **Idea, not yet scoped: an active "search/view by bare consonants" mode**
 (distinct from homograph flagging above - don't conflate the two). Homograph
@@ -317,8 +378,9 @@ not overclaiming ahead of real experience.
 
 ## Not yet built (roadmap)
 1. ~~Lexicon-derivation enrichment wired into the live Java pipeline~~ - DONE,
-   see the 2026-09-07 session above
-2. Homograph flagging in the DB
+   see the 2026-09-07 root-derivation session above
+2. ~~Homograph flagging in the DB~~ - DONE, see the 2026-09-07 homograph
+   session above
 3. React frontend (rendering the actual colored Hebrew text visually)
 4. Docker containerization
 5. Azure deployment (App Service or AKS) + Application Insights
@@ -327,6 +389,8 @@ not overclaiming ahead of real experience.
 8. Global word index for word-by-word/verse-by-verse navigation UI (backend
    range queries already support this via startVerse/endVerse params -
    frontend navigation UI not built)
+9. Active "search/view by bare consonants" toggle - separate, not-yet-scoped
+   idea, see "Key design decisions" above; not the same feature as #2
 
 ## Git workflow established
 - Repo initialized, `.gitignore` excludes `backend/target/` and `backend/data/`

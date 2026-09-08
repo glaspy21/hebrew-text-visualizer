@@ -41,10 +41,12 @@ slaughter, both שחט in bare consonants).
 Java pipeline — every word's Strong's ID is resolved to a true `Root` at
 ingestion time (1,837 raw Strong's IDs collapse down to 1,249 resolved
 roots in Genesis, 287 of them flagged as uncertain), and the live API groups
-by that resolved root, not the raw ID. See
-[PROJECT_NOTES.md](PROJECT_NOTES.md) for the full session writeup. Homograph
-detection (different roots that happen to share a consonantal skeleton) is
-still not yet wired in — a separate concern from root grouping.
+by that resolved root, not the raw ID. Homograph detection is also wired in:
+roots whose consonantal skeleton collides with another confirmed-primitive
+root once vowel points are stripped (e.g. squeeze vs. slaughter, both שחט
+bare) are flagged via `Root.homograph` — 26 clusters / 53 of those 1,249
+roots in Genesis — without merging or hiding either word. See
+[PROJECT_NOTES.md](PROJECT_NOTES.md) for the full session writeups.
 
 ## Tech stack
 
@@ -103,10 +105,12 @@ gitignored). Watch for:
 
 ```
 [Ingestion] Done. 1533 verses, 20612 words processed. 1837 unique roots found.
+[Homographs] 26 clusters found among 1249 roots - 53 roots flagged.
 ```
 
 (20,612 rather than the file's raw 20,629 `<w>` tags — see the Ketiv/Qere
-note in [DATA_SOURCES.md](DATA_SOURCES.md).)
+note in [DATA_SOURCES.md](DATA_SOURCES.md). The homograph pass re-runs every
+startup, not just on a fresh ingest — see PROJECT_NOTES.md.)
 
 Then query the API:
 
@@ -136,8 +140,10 @@ call).
 | `GET /api/verses/{book}/range?startChapter=&endChapter=` | A multi-chapter span |
 
 Every response includes each word's Hebrew text, root ID, part of speech,
-count within the requested range, and computed color. Only Genesis (`Gen`)
-is ingested today; other books return an empty list rather than an error.
+count within the requested range, computed color, and a `homograph` flag
+(true when the word's root shares a bare-consonant skeleton with another
+unrelated primitive root — see PROJECT_NOTES.md). Only Genesis (`Gen`) is
+ingested today; other books return an empty list rather than an error.
 
 ## Frontend
 
@@ -161,7 +167,7 @@ The backend's `WebConfig` allows CORS from `http://localhost:5173` for this.
 - [x] Automated tests for the color algorithm and range behavior
 - [x] Explicit dataset/version tracking for ingestion (checksum-based, not "table is non-empty")
 - [x] Lexicon-derivation enrichment wired into the live API
-- [ ] Homograph flagging in the database
+- [x] Homograph flagging in the database
 - [ ] React frontend (early scaffold exists, not feature-complete)
 - [ ] Docker + Azure deployment (App Service or AKS)
 - [ ] Multi-word / verse-range proximity search
