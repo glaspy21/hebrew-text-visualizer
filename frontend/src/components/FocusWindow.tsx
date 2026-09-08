@@ -3,51 +3,62 @@
 import { motion } from "motion/react";
 import { useLayoutEffect, useRef, useState } from "react";
 
-// A fixed constant, not a fixed verse count - however many verses fit in
-// this height is what shows, which varies with how long each verse's text
-// happens to be. Clamped by viewport height too, for smaller windows.
-const WINDOW_HEIGHT = "min(560px, 65vh)";
-// How far the tracked word's bottom edge sits from the window's own bottom
-// edge - the small strip below it stays inside the clear (non-blurred) zone.
-const TRACKED_BOTTOM_MARGIN_PX = 64;
+// The "magnifying glass": a bordered rectangle marking the sharp, in-focus
+// zone. Fixed size, not a fixed verse count - however many verses fit in
+// this height is what shows, varying with how long each verse's text is.
+const FRAME_HEIGHT = "clamp(320px, 45vh, 420px)";
+// Blurred margins above/below the frame, inside the same outer container -
+// real text (not empty space), per the "I should still see full text on
+// the screen... it should be there and blurred" request.
+const FRAME_MARGIN = "clamp(110px, 18vh, 180px)";
+const FRAME_COLOR = "#4A3728"; // dark brown
+// How far the tracked word's bottom edge sits from the FRAME's own bottom
+// edge - the small strip below it stays inside the frame's clear interior.
+const TRACKED_BOTTOM_MARGIN_PX = 56;
 
 /**
  * The "magnifying view" from the range/tracker/navigation discussion: a
- * fixed-size window, vertically centered on screen, that the reading
- * content scrolls THROUGH (via a transform, not native page scroll)
- * rather than the whole page scrolling - a "rolodex" feel where the
- * tracked word's screen position stays consistent (pinned near the
- * window's bottom edge) as you navigate forward or backward, and content
- * above/below fades into a graduated blur rather than disappearing at a
- * hard edge.
+ * bordered frame, vertically centered on screen, marking the sharp
+ * in-focus zone - text scrolls THROUGH it (a Motion transform, not native
+ * page scroll), "rolodex" style, with the tracked word pinned near the
+ * frame's bottom edge as you navigate. Above and below the frame, inside
+ * the same outer container, real text stays visible but graduated-blurred
+ * rather than hidden - past verses above (still their real colors),
+ * upcoming not-yet-counted verses below (always uncolored, since they
+ * aren't part of the analytical range yet - see page.tsx's
+ * peekUpcomingVerses).
  *
- * Position is computed from the DELTA between the tracked word's and the
+ * Position is computed from the delta between the tracked word's and the
  * content container's current getBoundingClientRect() - both live inside
  * the same transformed element, so a uniform translateY shifts them by
  * the same amount and cancels out of the difference, leaving the tracked
- * word's true position relative to the content regardless of whatever
- * transform is currently mid-animation. (An earlier version tried to use
- * offsetTop/offsetParent instead, on the theory that transforms don't
- * affect layout - true, but offsetParent walks through the nearest
- * POSITIONED ancestor, which skipped right over the unpositioned content
- * element and produced garbage numbers; this is simpler and was actually
- * correct.)
+ * word's true position regardless of whatever transform is currently
+ * mid-animation. (offsetTop/offsetParent looked layout-native and
+ * transform-proof in theory, but offsetParent walks through the nearest
+ * POSITIONED ancestor and skips right over an unpositioned content
+ * wrapper - produced garbage numbers in practice; this is simpler and
+ * actually correct.)
  */
 export function FocusWindow({ children }: { children: React.ReactNode }) {
-  const windowRef = useRef<HTMLDivElement>(null);
+  const outerRef = useRef<HTMLDivElement>(null);
+  const frameRef = useRef<HTMLDivElement>(null);
   const contentRef = useRef<HTMLDivElement>(null);
   const [offset, setOffset] = useState(0);
 
   useLayoutEffect(() => {
-    const windowEl = windowRef.current;
+    const outerEl = outerRef.current;
+    const frameEl = frameRef.current;
     const contentEl = contentRef.current;
-    if (!windowEl || !contentEl) return;
+    if (!outerEl || !frameEl || !contentEl) return;
     const tracked = contentEl.querySelector<HTMLElement>('[data-tracked="true"]');
     if (!tracked) return;
 
+    const outerTop = outerEl.getBoundingClientRect().top;
+    const frameBottom = frameEl.getBoundingClientRect().bottom;
+    const desiredBottom = frameBottom - outerTop - TRACKED_BOTTOM_MARGIN_PX;
+
     const trackedBottomRelativeToContent =
       tracked.getBoundingClientRect().bottom - contentEl.getBoundingClientRect().top;
-    const desiredBottom = windowEl.clientHeight - TRACKED_BOTTOM_MARGIN_PX;
     setOffset(desiredBottom - trackedBottomRelativeToContent);
     // Re-measure whenever the rendered content itself changes (a new verse
     // list / tracker position from navigation) - not on every unrelated
@@ -57,7 +68,11 @@ export function FocusWindow({ children }: { children: React.ReactNode }) {
 
   return (
     <div className="flex justify-center">
-      <div ref={windowRef} className="relative w-full overflow-hidden" style={{ height: WINDOW_HEIGHT }}>
+      <div
+        ref={outerRef}
+        className="relative w-full overflow-hidden"
+        style={{ height: `calc(${FRAME_MARGIN} + ${FRAME_HEIGHT} + ${FRAME_MARGIN})` }}
+      >
         <motion.div
           ref={contentRef}
           animate={{ y: offset }}
@@ -66,25 +81,38 @@ export function FocusWindow({ children }: { children: React.ReactNode }) {
           {children}
         </motion.div>
 
-        {/* Graduated blur - content fades toward soft focus at the top and
-            bottom edges instead of cutting off abruptly. The tracked word's
-            own small margin at the bottom stays inside the clear zone. */}
+        {/* Graduated blur above the frame - solid blur near the outer edge,
+            fading toward sharp as it nears the frame border. */}
         <div
-          className="pointer-events-none absolute inset-x-0 top-0 h-20"
+          className="pointer-events-none absolute inset-x-0 top-0"
           style={{
-            backdropFilter: "blur(4px)",
-            WebkitBackdropFilter: "blur(4px)",
-            maskImage: "linear-gradient(to bottom, black, transparent)",
-            WebkitMaskImage: "linear-gradient(to bottom, black, transparent)",
+            height: FRAME_MARGIN,
+            backdropFilter: "blur(5px)",
+            WebkitBackdropFilter: "blur(5px)",
+            maskImage: "linear-gradient(to bottom, black 55%, transparent)",
+            WebkitMaskImage: "linear-gradient(to bottom, black 55%, transparent)",
           }}
         />
+
+        {/* The magnifying-glass frame itself - a visible border marking the
+            sharp/in-focus rectangle. Nothing overlays this zone, so it's
+            simply never blurred. */}
         <div
-          className="pointer-events-none absolute inset-x-0 bottom-0 h-10"
+          ref={frameRef}
+          className="pointer-events-none absolute inset-x-0 rounded-md border-4"
+          style={{ top: FRAME_MARGIN, height: FRAME_HEIGHT, borderColor: FRAME_COLOR }}
+        />
+
+        {/* Graduated blur below the frame - fading from sharp near the
+            frame border to solid blur near the outer edge. */}
+        <div
+          className="pointer-events-none absolute inset-x-0 bottom-0"
           style={{
-            backdropFilter: "blur(4px)",
-            WebkitBackdropFilter: "blur(4px)",
-            maskImage: "linear-gradient(to top, black, transparent)",
-            WebkitMaskImage: "linear-gradient(to top, black, transparent)",
+            height: FRAME_MARGIN,
+            backdropFilter: "blur(5px)",
+            WebkitBackdropFilter: "blur(5px)",
+            maskImage: "linear-gradient(to top, black 55%, transparent)",
+            WebkitMaskImage: "linear-gradient(to top, black 55%, transparent)",
           }}
         />
       </div>

@@ -3,6 +3,9 @@ import { fetchThrough, fetchVerse } from "@/lib/api";
 import { VerseReader } from "@/components/VerseReader";
 import { RangeNavigator } from "@/components/RangeNavigator";
 import { FocusWindow } from "@/components/FocusWindow";
+import type { VerseResponse } from "@/lib/types";
+
+const UPCOMING_PREVIEW_VERSE_COUNT = 5;
 
 // The progressive-range reading route: always starts at the book's own
 // first verse (see the /through backend endpoint) and runs through this
@@ -24,6 +27,40 @@ async function peekNextVerse(book: string, chapter: number, verse: number) {
   return null;
 }
 
+/**
+ * A few verses past the tracker, purely for display below the focus
+ * window's frame - "I should still see full text on the screen... it
+ * should be there and blurred". These aren't part of the analytical
+ * range, so their colors are stripped below regardless of what the
+ * single-verse endpoint itself computed (it colors by ITS OWN word
+ * counts, which has nothing to do with the real progressive range).
+ */
+async function peekUpcomingVerses(
+  book: string,
+  chapter: number,
+  verse: number,
+  count: number,
+): Promise<VerseResponse[]> {
+  const upcoming: VerseResponse[] = [];
+  let c = chapter;
+  let v = verse;
+  while (upcoming.length < count) {
+    v += 1;
+    let next = await fetchVerse(book, c, v);
+    if (!next) {
+      c += 1;
+      v = 1;
+      next = await fetchVerse(book, c, v);
+      if (!next) break; // end of the ingested book
+    }
+    upcoming.push({
+      ...next,
+      words: next.words.map((w) => ({ ...w, countInRange: null, colorHexDark: null, colorHexLight: null })),
+    });
+  }
+  return upcoming;
+}
+
 export default async function ThroughVersePage({
   params,
   searchParams,
@@ -41,9 +78,10 @@ export default async function ThroughVersePage({
   const wordsIncludedParam = wordsIncluded != null ? Number(wordsIncluded) : undefined;
   if (wordsIncludedParam != null && !Number.isInteger(wordsIncludedParam)) notFound();
 
-  const [verses, nextVerse] = await Promise.all([
+  const [verses, nextVerse, upcomingVerses] = await Promise.all([
     fetchThrough(book, chapterNum, verseNum, wordsIncludedParam),
     peekNextVerse(book, chapterNum, verseNum),
+    peekUpcomingVerses(book, chapterNum, verseNum, UPCOMING_PREVIEW_VERSE_COUNT),
   ]);
   if (!verses || verses.length === 0) notFound();
 
@@ -77,7 +115,7 @@ export default async function ThroughVersePage({
       <div className="flex flex-1 items-center">
         <FocusWindow>
           <VerseReader
-            verses={verses}
+            verses={[...verses, ...upcomingVerses]}
             book={book}
             tracker={{ chapter: chapterNum, verse: verseNum, wordsIncluded: resolvedWordsIncluded }}
           />
