@@ -51,3 +51,10 @@ export interface RangeTracker {
   verse: number;
   wordsIncluded: number;
 }
+
+/** Just enough to let the tracker cross a verse boundary without re-fetching colors for it. */
+export interface VerseSummary {
+  chapter: number;
+  verse: number;
+  wordCount: number;
+}

@@ -75,6 +75,24 @@ export async function fetchThrough(
   return res.json();
 }
 
+/**
+ * A single verse, colored using only its own word counts (not a real range -
+ * see the endpoint's own backend comment). Used here just to peek a verse's
+ * identity/word count for forward tracker crossing, not for its colors.
+ */
+export async function fetchVerse(
+  book: string,
+  chapter: number,
+  verse: number,
+): Promise<VerseResponse | null> {
+  const res = await fetch(`${API_BASE}/verses/${book}/${chapter}/${verse}`);
+  if (res.status === 404) return null;
+  if (!res.ok) {
+    throw new Error(`Request failed (${res.status}): /verses/${book}/${chapter}/${verse}`);
+  }
+  return res.json();
+}
+
 /** Rich lexicon detail for one resolved root - fetch on demand, not per-word. */
 export async function fetchRoot(strongId: string): Promise<RootResponse | null> {
   const res = await fetch(`${API_BASE}/roots/${strongId}`);
