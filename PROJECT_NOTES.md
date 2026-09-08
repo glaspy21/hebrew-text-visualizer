@@ -1,5 +1,59 @@
 # Hebrew Text Rarity Visualizer — Project Notes
 
+## Session: 2026-09-08 — Next.js Phase 1 (foundation) built
+
+Closed FRONTEND_PLAN.md's Phase 1. Old Vite scaffold removed (`git rm`,
+not just abandoned) and replaced with a fresh Next.js 16 App Router
+project at `frontend/` (TypeScript, Tailwind v4, ESLint, Motion, via
+`create-next-app`). Landed as six reviewable commits: remove old scaffold,
+scaffold new project, API client (`lib/api.ts`/`lib/types.ts` mirroring
+the live backend contract), the dual-theme system (CSS custom properties
+for both WCAG palettes, `ThemeProvider`/`ThemeToggle`), ported reader
+components (`HebrewWord`/`VerseRow`/`VerseReader`/`RangePicker`), and the
+two-route split (`/read/[book]/[chapter]` static via
+`generateStaticParams` over Genesis's 50 chapters, `/read/[book]?start=&end=`
+dynamic).
+
+**Real bug hit and fixed:** RTL Hebrew text stopped wrapping and
+overflowed its container - turned out `verse.words.map(...)` was
+rendering adjacent `<span>` elements with literally no whitespace between
+them, so the browser had no line-break opportunity anywhere in a verse.
+Fixed by wrapping each word in a span with a trailing `{" "}` text node.
+
+**Two more fixes from live review of the RTL layout:** verse numbers were
+placed on the left of the row (a leftover LTR habit) - moved to the right
+edge by putting the word span first in DOM order, ahead of the number, so
+it matches how printed Hebrew Bibles place verse numbers at the start of
+right-to-left text. Also, `surfaceForm` carries OSHB's "/" marker between
+a grammatical prefix and the word it attaches to (e.g. "בְּ/רֵאשִׁית") -
+that's source-data punctuation, not part of the Hebrew text, so
+`HebrewWord` now strips it for display only (`rootStrongIdRaw`/
+`resolvedRootId` etc. are untouched).
+
+**Next.js 16 specifics worth remembering:** `params`/`searchParams` are
+`Promise`s in the App Router now (must `await` them in page components) -
+confirmed against the actual vendored docs in
+`frontend/node_modules/next/dist/docs/`, not assumed from older training
+data, per the auto-generated `AGENTS.md`'s own warning that this version
+has breaking changes.
+
+**Verified, not just built:** ran the app against the live backend in a
+real browser (dark and light theme, desktop and mobile viewport, the
+static chapter route, the dynamic range route including a cross-chapter
+range, and a 404 for an out-of-range chapter), fixed two React Compiler
+ESLint errors (`setState`-in-effect in `ThemeProvider`, a render-time
+variable mutation in `VerseReader`), and ran a full `next build` to
+confirm all 50 Genesis chapter pages actually static-generate and
+`/read/[book]` is correctly marked dynamic.
+
+**Deliberately deferred to later phases, not forgotten:** the
+exactly-twice colorblind-accessibility marker and root-click interaction
+(`/api/roots/{id}`) are Phase 4 per the plan, not Phase 1 - `HebrewWord`
+currently only surfaces root/count/uncertainty/homograph info via a hover
+`title`, no fetch-on-click yet. The continuous-reader/three-verse-focus
+behavior (Phase 3) also isn't built - Phase 1's reader is a flat,
+chapter-grouped verse list.
+
 ## Session: 2026-09-08 — frontend plan finalized, backend prep closed out
 
 Full frontend/translation vision worked out (originally drafted with a

@@ -152,13 +152,13 @@ books return an empty list rather than an error.
 
 ## Frontend
 
-An early Vite + React + TypeScript scaffold lives in [`frontend/`](frontend/)
-and still works against the current API, but it's being retired: the real
-frontend build is planned on Next.js instead, not yet started - see
-[FRONTEND_PLAN.md](FRONTEND_PLAN.md) for the full plan and
-[PROJECT_NOTES.md](PROJECT_NOTES.md) for why. The Vite scaffold queries the
-chapter/verse-range endpoint above and renders the returned words RTL with
-their computed colors. Run it with:
+A Next.js (App Router) app lives in [`frontend/`](frontend/), replacing the
+retired Vite scaffold - see [FRONTEND_PLAN.md](FRONTEND_PLAN.md) for the
+full plan and [PROJECT_NOTES.md](PROJECT_NOTES.md) for progress. Phase 1
+(foundation) is done: TypeScript/Tailwind/Motion scaffold, a typed API
+client against the endpoints above, the dual-theme color system, ported
+RTL word/verse rendering, and the `/read/[book]/[chapter]` (static) /
+`/read/[book]?start=&end=` (dynamic) routing split. Run it with:
 
 ```bash
 cd frontend
@@ -166,7 +166,8 @@ npm install
 npm run dev
 ```
 
-The backend's `WebConfig` allows CORS from `http://localhost:5173` for this.
+Runs on `http://localhost:3000` by default; the backend's `WebConfig`
+already allows CORS from that origin.
 
 ## Status / Roadmap
 
@@ -177,7 +178,8 @@ The backend's `WebConfig` allows CORS from `http://localhost:5173` for this.
 - [x] Explicit dataset/version tracking for ingestion (checksum-based, not "table is non-empty")
 - [x] Lexicon-derivation enrichment wired into the live API
 - [x] Homograph flagging in the database
-- [ ] React frontend (early scaffold exists, not feature-complete)
+- [x] Next.js frontend foundation (Phase 1: scaffold, API client, theming, routing split)
+- [ ] Continuous Hebrew reader with focus window and root-click interaction (Phases 2-4)
 - [ ] Docker + Azure deployment (App Service or AKS)
 - [ ] Multi-word / verse-range proximity search
 
