@@ -73,23 +73,26 @@ public class VerseController {
         return ResponseEntity.ok(buildRangeResponse(verses));
     }
 
-    // GET /api/verses/Gen/through?chapter=1&verse=30&includeVerse=true
+    // GET /api/verses/Gen/through?chapter=1&verse=30&wordsIncluded=5
     // -> the progressive reading range: every verse from the BOOK'S OWN FIRST
     // verse through the given chapter/verse (inclusive), colors computed over
     // that whole span. This is the "range always starts at Genesis 1:1"
     // default from FRONTEND_PLAN.md's navigation model - a custom range start
     // is a possible future addition, not built here.
     //
-    // includeVerse=false excludes the target verse from the color computation
-    // (but not from the response) - lets the frontend show an "about to be
-    // read" verse with no highlights yet, tracker on its first word, while
-    // includeVerse=true (default) counts it fully, tracker on its last word.
+    // wordsIncluded (optional) gives word-level precision within the target
+    // verse itself, for arrow-key stepping: only its first N words (by
+    // positionInVerse) count toward the range; the rest of the verse still
+    // renders, just uncolored. Omitted, it falls back to the coarser
+    // includeVerse boolean (true = the whole verse counts, tracker on its
+    // last word; false = none of it does, tracker on its first word).
     @GetMapping("/{book}/through")
     public ResponseEntity<List<VerseResponse>> getThrough(
             @PathVariable String book,
             @RequestParam Integer chapter,
             @RequestParam Integer verse,
-            @RequestParam(defaultValue = "true") Boolean includeVerse) {
+            @RequestParam(defaultValue = "true") Boolean includeVerse,
+            @RequestParam(required = false) Integer wordsIncluded) {
 
         Verse target = verseRepository.findByBookAndChapterNumberAndVerseNumber(book, chapter, verse)
                 .orElse(null);
@@ -108,23 +111,34 @@ public class VerseController {
         List<Verse> verses = verseRepository.findByBookAndCanonicalOrderBetweenOrderByCanonicalOrder(
                 book, first.getCanonicalOrder(), target.getCanonicalOrder());
 
-        List<Verse> versesForColor = (includeVerse || verses.isEmpty())
-                ? verses
-                : verses.subList(0, verses.size() - 1);
+        List<Word> targetWords = wordRepository.findByVerse_IdOrderByPositionInVerse(target.getId());
+        Set<Long> excludedWordIds;
+        if (wordsIncluded != null) {
+            int clamped = Math.max(0, Math.min(wordsIncluded, targetWords.size()));
+            excludedWordIds = targetWords.stream()
+                    .skip(clamped)
+                    .map(Word::getId)
+                    .collect(Collectors.toSet());
+        } else if (!includeVerse) {
+            excludedWordIds = targetWords.stream().map(Word::getId).collect(Collectors.toSet());
+        } else {
+            excludedWordIds = Set.of();
+        }
 
-        return ResponseEntity.ok(buildRangeResponse(verses, versesForColor));
+        return ResponseEntity.ok(buildRangeResponse(verses, excludedWordIds));
     }
 
     private List<VerseResponse> buildRangeResponse(List<Verse> verses) {
-        return buildRangeResponse(verses, verses);
+        return buildRangeResponse(verses, Set.of());
     }
 
-    // versesForColor lets a caller render more verses than it counts - the
-    // "through" endpoint's includeVerse=false case: the target verse's text
-    // is still returned, but its words are left out of the color computation
-    // entirely, so nothing in it gets a highlight (not even white/no-signal -
-    // it's simply not part of the analytical range yet).
-    private List<VerseResponse> buildRangeResponse(List<Verse> verses, List<Verse> versesForColor) {
+    // excludedWordIds are still rendered normally but never counted toward
+    // the color computation - lets a caller show more text than it counts
+    // (the "through" endpoint's includeVerse=false / wordsIncluded case): the
+    // target verse's text is always returned, but words outside the counted
+    // prefix get no highlight at all (not even white/no-signal - they're
+    // simply not part of the analytical range yet).
+    private List<VerseResponse> buildRangeResponse(List<Verse> verses, Set<Long> excludedWordIds) {
         // Fetch every word across every verse in the range FIRST, then compute
         // colors ONCE over the combined list - this is what makes cross-verse
         // patterns (like a word appearing once in Gen 1:5 and again in Gen 1:9)
@@ -134,13 +148,11 @@ public class VerseController {
             allWordsInRange.addAll(wordRepository.findByVerse_IdOrderByPositionInVerse(v.getId()));
         }
 
-        List<Word> wordsForColor = allWordsInRange;
-        if (versesForColor.size() != verses.size()) {
-            Set<Long> colorScopeVerseIds = versesForColor.stream().map(Verse::getId).collect(Collectors.toSet());
-            wordsForColor = allWordsInRange.stream()
-                    .filter(w -> colorScopeVerseIds.contains(w.getVerse().getId()))
-                    .collect(Collectors.toList());
-        }
+        List<Word> wordsForColor = excludedWordIds.isEmpty()
+                ? allWordsInRange
+                : allWordsInRange.stream()
+                        .filter(w -> !excludedWordIds.contains(w.getId()))
+                        .collect(Collectors.toList());
         Map<Long, RangeColorCalculator.WordColorResult> colors = rangeColorCalculator.computeColors(wordsForColor);
 
         List<VerseResponse> responses = new ArrayList<>();
