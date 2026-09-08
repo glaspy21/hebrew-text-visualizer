@@ -37,7 +37,10 @@ export function VerseReader({
                 {book} {v.chapter}
               </h2>
             )}
-            <VerseRow verse={v} trackerPosition={isTrackedVerse ? tracker.position : undefined} />
+            <VerseRow
+              verse={v}
+              trackedWordsIncluded={isTrackedVerse ? tracker.wordsIncluded : undefined}
+            />
           </div>
         );
       })}

@@ -14,24 +14,32 @@ export default async function ThroughVersePage({
   searchParams,
 }: {
   params: Promise<{ book: string; chapter: string; verse: string }>;
-  searchParams: Promise<{ includeVerse?: string }>;
+  searchParams: Promise<{ wordsIncluded?: string }>;
 }) {
   const { book, chapter, verse } = await params;
-  const { includeVerse } = await searchParams;
+  const { wordsIncluded } = await searchParams;
 
   const chapterNum = Number(chapter);
   const verseNum = Number(verse);
   if (!Number.isInteger(chapterNum) || !Number.isInteger(verseNum)) notFound();
 
-  const included = includeVerse !== "false";
-  const verses = await fetchThrough(book, chapterNum, verseNum, included);
+  const wordsIncludedParam = wordsIncluded != null ? Number(wordsIncluded) : undefined;
+  if (wordsIncludedParam != null && !Number.isInteger(wordsIncludedParam)) notFound();
+
+  const verses = await fetchThrough(book, chapterNum, verseNum, wordsIncludedParam);
   if (!verses || verses.length === 0) notFound();
+
+  const targetVerse = verses.find((v) => v.chapter === chapterNum && v.verse === verseNum);
+  // wordsIncludedParam omitted means "the whole verse" (the backend's own
+  // default) - resolve that to a concrete count from what actually came
+  // back, so the tracker lands on the true last word rather than guessing.
+  const resolvedWordsIncluded = wordsIncludedParam ?? targetVerse?.words.length ?? 0;
 
   return (
     <VerseReader
       verses={verses}
       book={book}
-      tracker={{ chapter: chapterNum, verse: verseNum, position: included ? "end" : "start" }}
+      tracker={{ chapter: chapterNum, verse: verseNum, wordsIncluded: resolvedWordsIncluded }}
     />
   );
 }

@@ -38,14 +38,16 @@ export type Theme = "dark" | "light";
 
 /**
  * Marks the current end of the progressive analytical range - a visual
- * underline on one word, per the range/tracker/navigation model. "end"
- * means the target verse is fully included (tracker on its LAST word);
- * "start" means it's excluded from coloring (tracker on its FIRST word,
- * about to be read but not counted yet) - mirrors the /through endpoint's
- * includeVerse flag.
+ * underline on one word, per the range/tracker/navigation model.
+ * wordsIncluded is how many of the target verse's words are counted (mirrors
+ * the /through endpoint's wordsIncluded param): the tracker sits on word
+ * (wordsIncluded - 1) if wordsIncluded > 0 (the last COUNTED word), or word 0
+ * if wordsIncluded is 0 (the verse's first word, not yet counted - about to
+ * be read). This subsumes the coarser "include the whole verse or not" case:
+ * wordsIncluded === the verse's own word count means fully included.
  */
 export interface RangeTracker {
   chapter: number;
   verse: number;
-  position: "start" | "end";
+  wordsIncluded: number;
 }

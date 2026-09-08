@@ -9,22 +9,24 @@ import { HebrewWord } from "./HebrewWord";
 // place verse numbers at the start of the (right-to-left) verse text.
 export function VerseRow({
   verse,
-  trackerPosition,
+  trackedWordsIncluded,
 }: {
   verse: VerseResponse;
-  /** "end" tracks the verse's last word, "start" its first - see RangeTracker. */
-  trackerPosition?: "start" | "end";
+  /** How many of this verse's words are in range - see RangeTracker. Undefined = not the tracked verse. */
+  trackedWordsIncluded?: number;
 }) {
+  const trackedIndex =
+    trackedWordsIncluded == null
+      ? -1
+      : trackedWordsIncluded > 0
+        ? Math.min(trackedWordsIncluded, verse.words.length) - 1
+        : 0;
+
   return (
     <div className="flex items-baseline gap-3 py-1.5">
       <span dir="rtl" className="min-w-0 flex-1 font-hebrew text-2xl leading-loose">
         {verse.words.map((w, i) => {
-          const tracked =
-            trackerPosition === "end"
-              ? i === verse.words.length - 1
-              : trackerPosition === "start"
-                ? i === 0
-                : false;
+          const tracked = i === trackedIndex;
           return (
             <span key={w.wordId ?? i}>
               <HebrewWord word={w} tracked={tracked} />{" "}

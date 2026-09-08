@@ -51,20 +51,22 @@ export function fetchChapterRange(
  * this is the default range model (always starts at Genesis 1:1, grows with
  * where you navigate to), not the fixed-range endpoints above.
  *
- * includeVerse=false excludes the target verse from the color computation
- * (its text still comes back, just with every word's countInRange/colorHex
- * null) - lets the frontend show an "about to be read" verse with the
- * tracker on its first word instead of its last. Returns null on a 404
- * (verse doesn't exist), matching fetchRoot's convention.
+ * wordsIncluded (optional) gives word-level precision within the target
+ * verse - only its first N words count toward the range, the rest still
+ * renders but uncolored. Omitted, the whole verse counts (the backend's
+ * default). 0 excludes the whole verse. This is what drives both the
+ * "include selected verse" toggle and arrow-key word stepping. Returns
+ * null on a 404 (verse doesn't exist), matching fetchRoot's convention.
  */
 export async function fetchThrough(
   book: string,
   chapter: number,
   verse: number,
-  includeVerse = true,
+  wordsIncluded?: number,
 ): Promise<VerseResponse[] | null> {
+  const wordsParam = wordsIncluded != null ? `&wordsIncluded=${wordsIncluded}` : "";
   const res = await fetch(
-    `${API_BASE}/verses/${book}/through?chapter=${chapter}&verse=${verse}&includeVerse=${includeVerse}`,
+    `${API_BASE}/verses/${book}/through?chapter=${chapter}&verse=${verse}${wordsParam}`,
   );
   if (res.status === 404) return null;
   if (!res.ok) {
