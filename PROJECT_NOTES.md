@@ -1,5 +1,52 @@
 # Hebrew Text Rarity Visualizer — Project Notes
 
+## Session: 2026-09-08 — frontend architecture decision: Next.js
+
+Decided (not yet implemented): adopt Next.js (App Router) for the frontend,
+in place of continuing the existing Vite + React scaffold
+(`frontend/`, see the 2026-09-07 root-derivation session for its origin).
+Reached by discussing tradeoffs directly and cross-checking against a
+colleague's independent review, which converged on the same shape - the
+guardrails below are as important as the "yes" itself.
+
+**Why now, and why Next.js specifically:**
+- The underlying content is close to static - Genesis's text and its
+  computed root-derivation/homograph data only change on re-ingestion, not
+  per-request. Chapter pages are strong static-generation candidates
+  (build-time fetch from the Spring Boot API), which fits directly into
+  roadmap item #8 (word/verse navigation UI) as real, deep-linkable,
+  shareable routes (e.g. `/genesis/22`) rather than only a live single-page
+  demo.
+- The stated goal is explicitly to learn Next.js itself, not only to ship
+  this one feature - and the current Vite scaffold is still small (one
+  `App.tsx`, three components, one API client), so this is close to the
+  cheapest point in the project's life to make this switch. Waiting until
+  the frontend is larger only raises the migration cost, not the payoff.
+- It's a defensible resume line on its own merits (Server/Client Components,
+  App Router, static generation), independent of the Bandwidth Java/Azure
+  target below - per the existing "accuracy honesty check" under Tech
+  stack, this only gets claimed once real Next.js-specific work is actually
+  built and running, not just scaffolded.
+
+**Guardrails, so the architecture stays modest - this is the part that
+matters most, and the main risk of adopting Next.js badly:**
+- Next.js is adopted for PAGES AND ROUTING ONLY. Spring Boot remains the
+  one and only API - no duplicate Next.js API-route layer reimplementing
+  what the backend already does.
+- Static generation is an OPTIMIZATION for known, well-defined chapter
+  pages, not the central architectural promise. Arbitrary/custom verse
+  ranges (the range picker in the current scaffold) stay dynamic -
+  client-side fetch straight to the Spring Boot API, same as today.
+- The reusable pieces from the Vite scaffold carry over close to as-is:
+  `HebrewWord`, `VerseRow`, the color/RTL rendering logic, and the API
+  client's shape. What changes is the app shell, routing, and which
+  requests happen at build time vs. in the browser - not the
+  visual/interaction guts.
+
+Styling/animation library choices (Tailwind, shadcn/ui vs. hand-rolled,
+Motion, TanStack Query) still open - to be decided and recorded once
+settled, before implementation starts.
+
 ## Session: 2026-09-07 — homograph flagging wired into Java
 
 Closed roadmap item 2, following the scoping decision from the previous
@@ -381,7 +428,9 @@ not overclaiming ahead of real experience.
    see the 2026-09-07 root-derivation session above
 2. ~~Homograph flagging in the DB~~ - DONE, see the 2026-09-07 homograph
    session above
-3. React frontend (rendering the actual colored Hebrew text visually)
+3. Frontend (rendering the actual colored Hebrew text visually) - decided
+   2026-09-08 to build this on Next.js rather than the existing Vite
+   scaffold, see the decision entry above
 4. Docker containerization
 5. Azure deployment (App Service or AKS) + Application Insights
 6. Multi-word / arbitrary-start-point proximity search (Phase 2 feature)
