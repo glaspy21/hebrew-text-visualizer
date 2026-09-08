@@ -125,8 +125,8 @@ cd backend
 mvn test
 ```
 
-Covers `ColorScaleCalculator` (the white → green → dark-red blend, including
-a regression test that no yellow/orange ever appears) and
+Covers `ColorScaleCalculator` (the two-theme green → red blend, including a
+regression test that neither theme ever drifts toward yellow/orange) and
 `RangeColorCalculator` (range-scoped counting: a root's color depends only on
 the list of words passed in for that specific request, recomputed fresh each
 call).
@@ -138,18 +138,27 @@ call).
 | `GET /api/verses/{book}/{chapter}/{verse}` | A single verse |
 | `GET /api/verses/{book}/{chapter}?startVerse=&endVerse=` | A verse range within one chapter |
 | `GET /api/verses/{book}/range?startChapter=&endChapter=` | A multi-chapter span |
+| `GET /api/roots/{strongId}` | Rich lexicon detail for one resolved root (gloss, transliteration, derivation certainty, homograph) - fetch on demand, e.g. on click |
 
-Every response includes each word's Hebrew text, root ID, part of speech,
-count within the requested range, computed color, and a `homograph` flag
-(true when the word's root shares a bare-consonant skeleton with another
-unrelated primitive root — see PROJECT_NOTES.md). Only Genesis (`Gen`) is
-ingested today; other books return an empty list rather than an error.
+Every verse response includes each word's stable `wordId`, Hebrew text, raw
+and resolved root identifiers, part of speech, count within the requested
+range, a `colorHexDark`/`colorHexLight` pair (both `null` when the root
+occurs only once in range — no highlight, not a color), and a `homograph`
+flag (true when the word's root shares a bare-consonant skeleton with
+another unrelated primitive root). See [FRONTEND_PLAN.md](FRONTEND_PLAN.md)
+for the full field-by-field contract and [PROJECT_NOTES.md](PROJECT_NOTES.md)
+for the reasoning behind it. Only Genesis (`Gen`) is ingested today; other
+books return an empty list rather than an error.
 
 ## Frontend
 
-An early Vite + React + TypeScript scaffold lives in [`frontend/`](frontend/).
-It queries the chapter/verse-range endpoint above and renders the returned
-words RTL with their computed colors. Run it with:
+An early Vite + React + TypeScript scaffold lives in [`frontend/`](frontend/)
+and still works against the current API, but it's being retired: the real
+frontend build is planned on Next.js instead, not yet started - see
+[FRONTEND_PLAN.md](FRONTEND_PLAN.md) for the full plan and
+[PROJECT_NOTES.md](PROJECT_NOTES.md) for why. The Vite scaffold queries the
+chapter/verse-range endpoint above and renders the returned words RTL with
+their computed colors. Run it with:
 
 ```bash
 cd frontend

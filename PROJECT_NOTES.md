@@ -1,5 +1,87 @@
 # Hebrew Text Rarity Visualizer — Project Notes
 
+## Session: 2026-09-08 — frontend plan finalized, backend prep closed out
+
+Full frontend/translation vision worked out (originally drafted with a
+colleague, then resolved point-by-point together) and recorded in the new
+[FRONTEND_PLAN.md](FRONTEND_PLAN.md) - that file is now the reference for
+starting the actual Next.js build, in a new session/thread. Not
+duplicating its content here; summarizing what got RESOLVED and what got
+BUILT this session instead.
+
+**Resolved open questions from the original draft** (see FRONTEND_PLAN.md
+for the full reasoning on each):
+- **Color contrast** was a real blocker, not a cosmetic detail: the
+  original "black text on colored background" idea would have been
+  unreadable at the dark-red end of the existing scale, and separately,
+  the existing bright-green endpoint was too light to sit behind readable
+  text either. Resolved as two independently-tuned, WCAG-contrast-verified
+  palettes (dark theme default, light theme toggle) - see "Color system"
+  below, since this part got fully IMPLEMENTED this session, not just planned.
+- **Routing**: `/read/[book]/[chapter]` statically generated as a
+  shareable entry point, `/read/[book]?start=&end=` dynamic for arbitrary
+  ranges, both driving one shared reader component.
+- **Colorblind accessibility**: the exactly-twice signal (the whole point
+  of the product) gets a non-color marker in addition to the green tint,
+  rather than relying on hue alone.
+- **Translation phase (Phase 7)** flagged explicitly as curatorial/
+  linguistic effort, not engineering effort - shouldn't be budgeted like
+  the other phases.
+
+**Color system - implemented and tested, not just decided.** Colors now
+render as a highlight BACKGROUND behind Hebrew text (not the text color
+itself, which was the original, broken assumption). Two palettes:
+
+| | page bg | text | green (2x signal) | red (most frequent) |
+|---|---|---|---|---|
+| Dark (default) | `#121212` | `#F2F0EB` | `#0A7A40` (~5.4:1) | `#BE2828` (~6.0:1) |
+| Light | `#FAF7F0` | `#1A1A1A` | `#5AAA78` (~6.1:1) | `#D2786E` (~5.5:1) |
+
+Contrast ratios are against that theme's text color, computed via WCAG
+relative luminance - see `ColorScaleCalculator`'s javadoc for the full
+math. Both current endpoints were checked and failed for the new
+background-badge use case, for opposite reasons: the old bright green
+`(0,200,0)` was too light (≈2.3:1 against white text, fails even the
+large-text minimum), and the old dark red `(40,0,0)` had LOWER luminance
+than the page background itself, so it would visually disappear rather
+than register as a highlight at all - passing a text-contrast check isn't
+the same as being visible as a badge. `countInRange <= 1` now returns
+`colorHexDark`/`colorHexLight` both `null` ("no highlight" is a frontend
+decision from `countInRange`, not a sentinel color) instead of a white hex.
+
+**Backend prep closed out - 8 commits, all live-verified, not just unit
+tested:**
+1. Retuned `ColorScaleCalculator` for the dual-theme scale above.
+2. Propagated `ThemedColor` through `RangeColorCalculator`.
+3. Exposed `colorHexDark`/`colorHexLight` via the API.
+4. Fixed `WordResponse`'s identity fields: added `wordId` (was missing
+   entirely - no way to target a specific occurrence before this),
+   renamed the misleadingly-named `rootId` to `rootStrongIdRaw` (it only
+   ever returned the RAW pre-resolution id despite the name), added
+   `resolvedRootId`/`resolvedRootStrongId` (the actual grouping key) and
+   `derivationUncertain` (computed since the root-derivation session,
+   never exposed until now).
+5. Parsed `xlit` (transliteration) and `<meaning>` (gloss) from
+   `HebrewStrong.xml` into `Root` - `Root.glossEnglish` existed as a
+   column since the root-derivation session but nothing ever populated it.
+6. Added `GET /api/roots/{strongId}` - rich lexicon detail fetched on
+   demand (word click), kept separate from `WordResponse` so per-word
+   payloads stay cheap across large ranges.
+7. Opened CORS for `localhost:3000` (Next.js's default dev port),
+   alongside the existing Vite entry.
+
+**Same operational catch, third time now:** adding `homograph` and now
+`transliteration`/`glossEnglish` to `Root` both hit the same
+`ddl-auto=update`-can't-safely-alter-an-existing-table issue documented in
+the homograph session. Same fix again: delete local `backend/data/` and
+let a fresh ingestion recreate the schema. Worth automating (a real
+migration tool) before this happens a fourth time, but not urgent at this
+project's size.
+
+**Not done, deliberately left to the new frontend session/thread:**
+FRONTEND_PLAN.md's Phase 1 onward - no Next.js project has been created,
+nothing in `frontend/` (the old Vite scaffold) has changed.
+
 ## Session: 2026-09-08 — frontend architecture decision: Next.js
 
 Decided (not yet implemented): adopt Next.js (App Router) for the frontend,
@@ -430,7 +512,9 @@ not overclaiming ahead of real experience.
    session above
 3. Frontend (rendering the actual colored Hebrew text visually) - decided
    2026-09-08 to build this on Next.js rather than the existing Vite
-   scaffold, see the decision entry above
+   scaffold; full plan in [FRONTEND_PLAN.md](FRONTEND_PLAN.md), backend API
+   contract it depends on is ready and live-verified (see the 2026-09-08
+   session above) - implementation itself not yet started
 4. Docker containerization
 5. Azure deployment (App Service or AKS) + Application Insights
 6. Multi-word / arbitrary-start-point proximity search (Phase 2 feature)
