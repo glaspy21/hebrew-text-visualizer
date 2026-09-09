@@ -113,7 +113,7 @@ export default async function ThroughVersePage({
         nextVerse={nextVerse}
       />
       <div className="flex flex-1 items-center">
-        <FocusWindow>
+        <FocusWindow book={book}>
           <VerseReader
             verses={[...verses, ...upcomingVerses]}
             book={book}

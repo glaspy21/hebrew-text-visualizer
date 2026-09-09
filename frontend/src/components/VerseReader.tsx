@@ -28,7 +28,7 @@ export function VerseReader({
         const isTrackedVerse =
           tracker != null && v.chapter === tracker.chapter && v.verse === tracker.verse;
         return (
-          <div key={v.osisId}>
+          <div key={v.osisId} data-chapter={v.chapter} data-verse={v.verse}>
             {showChapterMarker && (
               <h2
                 className="mt-6 border-b pb-1 text-sm font-semibold uppercase tracking-wide opacity-60 first:mt-0"

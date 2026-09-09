@@ -1,7 +1,8 @@
 "use client";
 
 import { motion } from "motion/react";
-import { useLayoutEffect, useRef, useState } from "react";
+import { useRouter } from "next/navigation";
+import { useEffect, useLayoutEffect, useRef, useState } from "react";
 
 // The "magnifying glass": a bordered rectangle marking the sharp, in-focus
 // zone. Fixed size, not a fixed verse count - however many verses fit in
@@ -24,6 +25,20 @@ const FRAME_PADDING_X = "1.25rem";
 // smoothly from wherever it already was - a jarring "snap to top, then
 // slide back down" glitch on every verse crossing.
 let lastOffset = 0;
+
+// How long to wait after the last wheel event before treating a scroll
+// gesture as "settled" and snapping the tracker to whatever verse is
+// centered - long enough that trackpad momentum's trailing small deltas
+// don't each restart the timer forever, short enough that it still reads
+// as "right after you stop", not a laggy delay.
+const SCROLL_SETTLE_MS = 180;
+
+/** Normalizes wheel delta across input devices - deltaMode 1 is "lines" (a real mouse wheel), 2 is "pages"; only trackpads report 0 ("pixels") natively. */
+function normalizedWheelDelta(e: WheelEvent): number {
+  if (e.deltaMode === 1) return e.deltaY * 16;
+  if (e.deltaMode === 2) return e.deltaY * 320;
+  return e.deltaY;
+}
 
 /**
  * The "magnifying view" from the range/tracker/navigation discussion: a
@@ -59,8 +74,21 @@ let lastOffset = 0;
  * actual applied transform frame-by-frame: it visibly started from an
  * unrelated intermediate value, not from lastOffset, when initial was
  * left unset). Being explicit removes the ambiguity.
+ *
+ * Scroll-to-navigate: wheeling with the cursor over the frame moves the
+ * content 1:1 with the gesture (no tween - `isScrolling` drops the
+ * transition duration to 0 so it doesn't lag behind the wheel), same
+ * "rolodex" content but scroll-driven instead of key-driven. Once the
+ * wheel goes quiet for `SCROLL_SETTLE_MS`, whichever verse is closest to
+ * the frame's vertical center becomes the new tracked verse, landed on
+ * its first word (`wordsIncluded=0`) via a route navigation - this
+ * reuses the exact same remount -> `lastOffset`/`seed` continuity ->
+ * re-center path already verified for arrow-key boundary crossings, so
+ * the snap into place after scrolling gets the same jank-free behavior
+ * for free rather than needing its own logic.
  */
-export function FocusWindow({ children }: { children: React.ReactNode }) {
+export function FocusWindow({ children, book }: { children: React.ReactNode; book: string }) {
+  const router = useRouter();
   const outerRef = useRef<HTMLDivElement>(null);
   const frameRef = useRef<HTMLDivElement>(null);
   const contentRef = useRef<HTMLDivElement>(null);
@@ -69,32 +97,18 @@ export function FocusWindow({ children }: { children: React.ReactNode }) {
   // lifetime, used as Motion's explicit `initial` value.
   const [seed] = useState(() => lastOffset);
   const [offset, setOffset] = useState(seed);
+  const [isScrolling, setIsScrolling] = useState(false);
 
-  // KNOWN BUG, not yet fixed: live-measured after a verse-boundary crossing
-  // (Gen 1:13 wordsIncluded=0 -> retreat -> Gen 1:12 wordsIncluded=18) and
-  // the tracked word ("טוֹב", verse 12's real last word) landed ~250px
-  // below the frame's bottom edge, not at its center. Direct measurement:
-  // desiredCenter computed as 376.6 (correct - matches the frame's own
-  // center relative to outer), but the applied transform was -759.156 while
-  // recomputing the SAME formula moments later against the live DOM gave
-  // -1010.1 - a ~250px discrepancy between what should apply and what's
-  // actually applied. Two live-verified facts ruled out so far:
-  // (1) not a stale-render/timing issue - re-measured ~1.2s after the
-  //     crossing settled, well past the 350ms transition;
-  // (2) the frame element itself is being found correctly (its rect matches
-  //     the CSS clamp() values exactly).
-  // Not yet diagnosed: why the DOM's actual transform doesn't match what
-  // this effect computes and calls setOffset with. Suspect either (a) a
-  // second, later effect run overwriting nextOffset with a stale
-  // measurement taken before Motion finished applying a PRIOR transform (an
-  // ordering issue between this effect and Motion's own internal effects on
-  // the same remount - see the "seed" doc comment above for a related but
-  // different Motion-timing bug already fixed), or (b) getBoundingClientRect
-  // being read against a not-yet-reflowed layout for the newly-lengthened
-  // upcomingVerses content on this particular verse. Start by re-running the
-  // same live-instrumented trace used to fix the remount-glitch bug above
-  // (poll the applied transform value + log this effect's inputs/outputs on
-  // every run, not just assume one run happens per crossing).
+  // Centering bug (previously open, see PROJECT_NOTES.md): re-verified live
+  // via instrumented tracing (every effect run's computed nextOffset logged
+  // alongside the transform Motion actually applied, both immediately and
+  // ~500ms after settling) across a backward single-verse crossing, a rapid
+  // multi-verse hold-repeat burst, and a chapter-boundary crossing. In all
+  // cases the applied transform matched the computed nextOffset exactly - no
+  // discrepancy reproduced. The earlier ~250px mismatch is gone, apparently
+  // fixed as a side effect of the explicit `initial={{ y: seed }}` fix above
+  // (both bugs shared the same underlying cause: an ordering race between
+  // this effect and Motion's own effects on a boundary-crossing remount).
   useLayoutEffect(() => {
     const outerEl = outerRef.current;
     const frameEl = frameRef.current;
@@ -120,6 +134,61 @@ export function FocusWindow({ children }: { children: React.ReactNode }) {
     // the linter defaults to would miss entirely.
   }, [children]);
 
+  // Native listener (not React's onWheel) so preventDefault reliably stops
+  // the page itself from scrolling - React attaches its own passive
+  // listener at the root for wheel events, which silently ignores
+  // preventDefault() called from a plain onWheel prop.
+  useEffect(() => {
+    const outerEl = outerRef.current;
+    if (!outerEl) return;
+
+    let settleTimer: ReturnType<typeof setTimeout> | null = null;
+
+    function landOnCenteredVerse() {
+      const frameEl = frameRef.current;
+      const contentEl = contentRef.current;
+      if (!frameEl || !contentEl) return;
+      const frameRect = frameEl.getBoundingClientRect();
+      const centerY = (frameRect.top + frameRect.bottom) / 2;
+
+      const verseEls = contentEl.querySelectorAll<HTMLElement>("[data-chapter][data-verse]");
+      let closest: { chapter: number; verse: number; distance: number } | null = null;
+      verseEls.forEach((el) => {
+        const rect = el.getBoundingClientRect();
+        const elCenter = (rect.top + rect.bottom) / 2;
+        const distance = Math.abs(elCenter - centerY);
+        if (!closest || distance < closest.distance) {
+          closest = { chapter: Number(el.dataset.chapter), verse: Number(el.dataset.verse), distance };
+        }
+      });
+      setIsScrolling(false);
+      if (!closest) return;
+      router.replace(`/read/${book}/${closest.chapter}/${closest.verse}?wordsIncluded=0`);
+    }
+
+    function onWheel(e: WheelEvent) {
+      e.preventDefault();
+      setIsScrolling(true);
+      const delta = normalizedWheelDelta(e);
+      // Scrolling down (positive deltaY) reveals later content, same
+      // direction as the existing offset convention above (more negative
+      // offset = later content shifted into the frame).
+      setOffset((o) => {
+        const next = o - delta;
+        lastOffset = next;
+        return next;
+      });
+      if (settleTimer != null) clearTimeout(settleTimer);
+      settleTimer = setTimeout(landOnCenteredVerse, SCROLL_SETTLE_MS);
+    }
+
+    outerEl.addEventListener("wheel", onWheel, { passive: false });
+    return () => {
+      outerEl.removeEventListener("wheel", onWheel);
+      if (settleTimer != null) clearTimeout(settleTimer);
+    };
+  }, [book, router]);
+
   return (
     <div className="flex justify-center">
       <div
@@ -131,7 +200,7 @@ export function FocusWindow({ children }: { children: React.ReactNode }) {
           ref={contentRef}
           initial={{ y: seed }}
           animate={{ y: offset }}
-          transition={{ type: "tween", duration: 0.35, ease: "easeOut" }}
+          transition={isScrolling ? { duration: 0 } : { type: "tween", duration: 0.35, ease: "easeOut" }}
           style={{ paddingLeft: FRAME_PADDING_X, paddingRight: FRAME_PADDING_X }}
         >
           {children}
