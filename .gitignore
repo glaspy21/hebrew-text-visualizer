@@ -1,11 +1,25 @@
+# Backend build output and local data
 /backend/target/
 /backend/data/
+
+# Frontend dependencies and build output
 node_modules/
 frontend/dist/
+
+# Python cache files
 __pycache__/
 *.pyc
+
+# IDE settings
 .idea/
 *.iml
 .vscode/
+
+# Operating system and log files
 .DS_Store
 *.log
+
+# Local AI instructions and project memory
+CLAUDE.md
+PROJECT_STATE.md
+PROJECT_NOTES.md

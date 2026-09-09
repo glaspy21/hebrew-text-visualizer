@@ -1,5 +1,91 @@
 # Hebrew Text Rarity Visualizer — Project Notes
 
+## Session: 2026-09-08 — Phase 3 (focus behavior) built, catching up notes
+
+**Note on this entry:** the 19 commits below (`61b8902` through `49dcaba`)
+landed without a `PROJECT_NOTES.md`/`PROJECT_STATE.md` update at the time -
+`PROJECT_STATE.md` was left describing an unrelated placeholder task
+(`ColorSpectrum.tsx`, never a real file in this repo). This entry
+reconstructs what actually shipped, from git history and the current code,
+so the handoff docs match reality per `CLAUDE.md`'s protocol. See the fresh
+`PROJECT_STATE.md` for the actively open task this leaves behind.
+
+**Backend:** added `GET /api/verses/{book}/through` - the progressive-range
+endpoint Phase 3's reader depends on, returning every verse from a book's
+start through a given chapter/verse, with an optional `wordsIncluded` cutoff
+on the target verse for word-level precision.
+
+**Frontend - navigation model (`RangeNavigator.tsx`):** book/chapter/verse
+jump form, plus arrow-key word-by-word stepping through the target verse.
+RTL-correct key mapping (Left advances, Right retreats, matching Hebrew
+reading direction - will need to flip for Phase 7's English/LTR content).
+Holding a key auto-repeats with its own accelerating ramp (350ms initial
+delay down to a 130ms floor, 0.92 acceleration factor) rather than the
+browser's native non-accelerating repeat. Tuning history worth keeping: a
+40ms floor was tried first and was too fast to track visually AND
+outran real server round-trips (requests piled up faster than they could
+resolve, making the tracker appear to vanish mid-hold) - 130ms fixed both.
+Stepping crosses verse boundaries: backward has no depth limit (the whole
+progressive range is already in memory as `versesSoFar`); forward only
+prefetches one verse of lookahead (`nextVerse`), so a hold that outruns that
+clamps until fresh data arrives rather than fetching further ahead itself.
+
+**Real bug hit and fixed:** crossing a verse boundary changes the route's
+path segments, which fully unmounts and remounts `RangeNavigator` (a new
+route match, not just new props) - discarding all refs/state including
+"is a key currently held down." Fixed by moving hold-tracking state
+(`heldDirection`, `heldInterval`, `lastTickAt`) to module scope instead of
+component state, with a staleness guard (`RESUME_STALE_AFTER_MS`, 1000ms) so
+a truly-stale held state from a much earlier, unrelated navigation doesn't
+phantom-resume.
+
+**Frontend - the focus window (`FocusWindow.tsx`):** a fixed-size
+"magnifying glass" frame, vertically centered on screen, that text scrolls
+THROUGH via a Motion transform (not native page scroll) as navigation
+proceeds - "rolodex" style, with the tracked word pinned at the frame's
+vertical center. Above/below the frame, real (not empty) text stays visible
+but blurred via `backdrop-filter` - past verses in their real colors,
+upcoming not-yet-counted verses (`peekUpcomingVerses` in `page.tsx`) always
+uncolored, since they aren't part of the analytical range yet. Position is
+computed from `getBoundingClientRect()` deltas between the tracked word and
+the content container, not `offsetTop`/`offsetParent` (tried first, produced
+garbage numbers - `offsetParent` walks the nearest POSITIONED ancestor and
+skipped over an unpositioned wrapper here).
+
+**Two real bugs hit and fixed, live-verified:**
+1. Crossing a verse boundary remounts `FocusWindow` (same root cause as
+   `RangeNavigator`'s hold-across-remount bug above), which reset the scroll
+   offset to 0 and made Motion visibly snap to the top before animating back
+   down. Root cause was subtler than expected: Motion's implicit "no
+   `initial` prop means don't animate on mount" default did NOT reliably
+   hold across this kind of remount (confirmed by tracing the actual applied
+   transform frame-by-frame - it started from an unrelated intermediate
+   value). Fixed by freezing a `seed` value (a lazy `useState` initializer
+   reading the module-level `lastOffset`) and passing it to Motion's
+   `initial` explicitly, removing the ambiguity.
+2. The blur above/below the frame originally faded in gradually
+   (mask-image gradient). Live feedback: it should be a hard cut - "the
+   magnifying rectangle is the only text that's being magnified." Fixed by
+   removing the gradient mask in favor of flat, full blur immediately
+   outside the frame border.
+
+**One bug NOT fixed, left open (see `PROJECT_STATE.md` for the active
+task):** tracker center alignment. After a verse-boundary crossing
+(live-tested Gen 1:13 -> Gen 1:12), the tracked word landed ~250px below the
+frame's center instead of at it. Live measurement showed the computed
+`desiredCenter` was correct (376.6, matches the frame's own rect), but the
+applied transform (-759.156) didn't match the same formula recomputed
+moments later against the live DOM (-1010.1). Stale-timing and
+wrong-element theories were both live-tested and ruled out. Diagnostic
+detail preserved as an inline "KNOWN BUG" comment directly above the
+relevant effect in `FocusWindow.tsx`, since it's exactly what the next
+debugging session needs and belongs next to the code it describes.
+
+**Verified, not just built:** the navigation model, key-hold acceleration,
+and boundary crossing were live-driven in a real browser across multiple
+verse and chapter boundaries in both directions before either FocusWindow
+bug was investigated.
+
 ## Session: 2026-09-08 — Next.js Phase 1 (foundation) built
 
 Closed FRONTEND_PLAN.md's Phase 1. Old Vite scaffold removed (`git rm`,
@@ -566,16 +652,20 @@ not overclaiming ahead of real experience.
    session above
 3. Frontend (rendering the actual colored Hebrew text visually) - decided
    2026-09-08 to build this on Next.js rather than the existing Vite
-   scaffold; full plan in [FRONTEND_PLAN.md](FRONTEND_PLAN.md), backend API
-   contract it depends on is ready and live-verified (see the 2026-09-08
-   session above) - implementation itself not yet started
+   scaffold; full plan in [FRONTEND_PLAN.md](FRONTEND_PLAN.md). Phases 1-3
+   are now built and live-verified (basic dual-theme colored reader, plus
+   the progressive-range "focus window" magnifying reader with word-by-word
+   navigation) - see the 2026-09-08 focus-window-centering session below.
+   Phases 4+ (colorblind-accessibility marker, LTR support, etc.) not
+   started.
 4. Docker containerization
 5. Azure deployment (App Service or AKS) + Application Insights
 6. Multi-word / arbitrary-start-point proximity search (Phase 2 feature)
 7. Inflection-specific filtering UI (search by stem/tense/person/gender)
-8. Global word index for word-by-word/verse-by-verse navigation UI (backend
-   range queries already support this via startVerse/endVerse params -
-   frontend navigation UI not built)
+8. ~~Global word index for word-by-word/verse-by-verse navigation UI~~ - DONE
+   for the progressive-range reader (arrow-key stepping with verse-boundary
+   crossing, see Frontend Phase 3 above); a separate global cross-book word
+   index is not built
 9. Active "search/view by bare consonants" toggle - separate, not-yet-scoped
    idea, see "Key design decisions" above; not the same feature as #2
 
@@ -589,3 +679,97 @@ not overclaiming ahead of real experience.
   are ignored.
 - Habit going forward: `git add .` -> `git commit -m "..."` -> `git push`
   after each meaningful change
+
+## 2026-09-08: FocusWindow centering bug root-caused and closed
+
+Continuation of the same-day focus-window session (remount-glitch and blur
+fixes already landed as commit `49dcaba` before this session started). The
+one remaining open item was a tracker-centering bug: after a verse-boundary
+crossing, the tracked word sometimes didn't land at the frame's vertical
+center, with a live-measured ~250px discrepancy between the computed offset
+and the transform Motion actually applied.
+
+**Approach:** added temporary instrumentation to `FocusWindow.tsx`'s
+`useLayoutEffect` - logged the computed `nextOffset` on every effect run,
+plus the DOM's actual applied `transform` both on the next animation frame
+and again ~500ms after settling (well past the 350ms transition). Started a
+local dev server (`.claude/launch.json`'s new `frontend` config; the backend
+was already running separately on :8080) and drove real crossings in the
+browser tool.
+
+**Scenarios tested, all matching (computed offset == applied transform,
+confirmed both via console output and visual screenshots):**
+1. The exact original repro - backward single-verse crossing, Gen 1:13
+   wordsIncluded=0 -> retreat -> Gen 1:12 wordsIncluded=18 (tracked word
+   "טוֹב").
+2. A rapid hold-repeat burst (~20 fast keypresses) crossing 5+ verse
+   boundaries in a row, stressing the "overlapping remounts before the prior
+   transition finishes" theory.
+3. A forward chapter-boundary crossing, Gen 1:31 -> Gen 2:1 (a much larger
+   content-height jump than a same-chapter crossing).
+
+**Conclusion:** the bug did not reproduce anywhere. Root cause is inferred
+to be the same ordering race already fixed by the `initial={{ y: seed }}`
+change in `49dcaba` (Motion's own effect writing the transform vs. this
+component's layout effect reading `getBoundingClientRect()`, on the same
+boundary-crossing remount) - fixing that race for the remount-glitch bug
+apparently fixed this one too, since they shared the same underlying cause.
+No logic changes were needed this session; only removed the temporary debug
+instrumentation and replaced the stale "KNOWN BUG" inline comment with a
+note on the verification performed.
+
+**Lesson:** when a bug report describes a race/ordering issue and a
+different fix already lands nearby (same file, same remount lifecycle),
+always re-verify live before assuming the original bug is still open -
+don't trust a stale bug comment over fresh instrumentation.
+
+**Housekeeping:** `.claude/launch.json` did not exist yet (needed to run
+`npm run dev` via the browser tool's `preview_start`); created a minimal
+`frontend` config (port 3000, `cwd: frontend`). Not gitignored, currently
+untracked.
+
+## 2026-09-08 - Scroll-to-navigate in the focus window
+
+Resolved one of the two structural questions left open in `FRONTEND_PLAN.md`
+("does the focus window follow ordinary scrolling, or stay purely
+navigation-driven?") - the answer, per direct user request, is both:
+arrow-key stepping stays exactly as-is, and wheel-scrolling over the frame
+is now a second, independent way to move the tracker.
+
+**Design:** a native `wheel` listener on `FocusWindow`'s outer container
+moves the existing Motion `offset` state 1:1 with `deltaY` (transition
+duration forced to 0 via a new `isScrolling` flag, so the content doesn't
+lag the gesture behind a 0.35s tween). After ~180ms of no wheel events, the
+component measures every verse's wrapper element (now tagged
+`data-chapter`/`data-verse` in `VerseReader.tsx`) and finds whichever one's
+own vertical center is closest to the frame's center, then
+`router.replace()`s to that verse with `wordsIncluded=0` - landing the
+tracker on its first word, per spec, regardless of where it was mid-verse
+before scrolling.
+
+**Key design decision - reuse, don't duplicate:** the scroll-settle
+navigation is a completely ordinary route change, identical in kind to what
+arrow-key boundary-crossing already does. That means it triggers the exact
+same remount -> `lastOffset`/`seed` continuity -> re-centering
+`useLayoutEffect` path already built and verified for keyboard navigation.
+No new positioning/snapping logic was needed for the "settle into place"
+feel - it's the same mechanism, just reached via a different trigger. This
+kept the change small: `RangeNavigator.tsx` needed zero modifications.
+
+**Verification:** live in-browser, using both dispatched synthetic wheel
+events (to get deterministic deltas) and the browser tool's real
+scroll-gesture action (mouse wheel over the frame). Confirmed both scroll
+directions land the tracker on the correct verse's first word, visibly
+centered in the frame (screenshots), with no console errors.
+
+**Notable non-issue investigated and ruled out:** mid-session, the browser
+tab began exhibiting a burst of `ArrowLeft` keydowns with `isTrusted: true`
+that no tool call in this session sent, driving `RangeNavigator`'s
+hold-to-repeat on its own for ~10-15s before stopping. Traced via a
+temporary `window.addEventListener` logger (not left in the codebase) and
+confirmed: zero wheel events fired during that window, so it was not this
+session's new code; `RangeNavigator.tsx` was never touched, so its logic
+isn't newly buggy either. Concluded this is a stuck/repeating key at the
+browser or host input level in the shared automation environment - an
+environmental artifact of the tooling, not a product bug. Noted in
+`PROJECT_STATE.md` in case it recurs and looks alarming in a future session.
